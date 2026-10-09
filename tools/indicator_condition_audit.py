@@ -50,7 +50,7 @@ from analytics.indicator_condition import (  # noqa: E402
     evaluate_conditions,
     tag_trades,
 )
-from analytics.store import DEFAULT_DB_PATH  # noqa: E402
+from analytics.store import DEFAULT_DB_PATH, load_backtest_trades  # noqa: E402
 from analytics.strategies._registry import STRATEGY_REGISTRY  # noqa: E402
 from tools.warning_value_audit import _load_market, _tf_ms  # noqa: E402
 
@@ -90,15 +90,13 @@ def normalize_live(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def normalize_backtest(df: pd.DataFrame) -> pd.DataFrame:
-    """``backtest_trades`` rows -> the common entry frame, deduped across runs.
+    """``backtest_trades`` rows -> the common entry frame.
 
-    Dedup on (symbol, tf, strategy, direction, entry_time) keeping the
-    lexicographically-latest ``run_id`` (mirrors
-    ``warning_value_audit.normalize_backtest``).
+    A reshape only: run selection and the cross-run dedup happen once, in
+    ``analytics.store.load_backtest_trades``.
     """
     out = pd.DataFrame(
         {
-            "run_id": df["run_id"],
             "symbol": df["symbol"],
             "tf": df["timeframe"],
             "strategy": df["strategy"],
@@ -106,11 +104,8 @@ def normalize_backtest(df: pd.DataFrame) -> pd.DataFrame:
             "entry_time": df["entry_time"],
             "pnl_r": df["pnl_r"],
         }
-    ).dropna(subset=["entry_time", "pnl_r"])
-    out = out.sort_values("run_id", kind="stable").drop_duplicates(
-        subset=["symbol", "tf", "strategy", "direction", "entry_time"], keep="last"
     )
-    return out.drop(columns=["run_id"]).reset_index(drop=True)
+    return out.dropna(subset=["entry_time", "pnl_r"]).reset_index(drop=True)
 
 
 def scope_entries(
@@ -153,14 +148,20 @@ def _load_entries(db: Path, src: str, since_ms: int | None) -> pd.DataFrame:
             if since_ms is not None:
                 q += f" AND candle_ts_ms >= {since_ms}"
             return normalize_live(conn.execute(q).df())
-        q = (
-            "SELECT run_id, symbol, timeframe, strategy, direction, "
-            "entry_time, pnl_r "
-            "FROM backtest_trades WHERE pnl_r IS NOT NULL"
+        df = load_backtest_trades(
+            conn,
+            columns=(
+                "symbol",
+                "timeframe",
+                "strategy",
+                "direction",
+                "entry_time",
+                "pnl_r",
+            ),
         )
         if since_ms is not None:
-            q += f" AND entry_time >= {since_ms}"
-        return normalize_backtest(conn.execute(q).df())
+            df = df[df["entry_time"] >= since_ms]
+        return normalize_backtest(df)
 
 
 def _load_indicator_market(

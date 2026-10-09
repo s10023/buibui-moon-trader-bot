@@ -62,7 +62,11 @@ from analytics.backtest_config import load_backtest_config  # noqa: E402
 from analytics.research_guards import utc_day_keys  # noqa: E402
 from analytics.signal.gates import _filter_signals_by_adr  # noqa: E402
 from analytics.signal_config import _day_filter_to_weekdays  # noqa: E402
-from analytics.store import DEFAULT_DB_PATH  # noqa: E402
+from analytics.store import (  # noqa: E402
+    DEFAULT_DB_PATH,
+    SIGNAL_KEY,
+    load_backtest_trades,
+)
 
 # Day-filter modes recognised by `_day_filter_to_weekdays`. Kept here as an
 # explicit allowlist so argparse can validate `--day-filter` and we can raise
@@ -211,36 +215,35 @@ def load_trades(
 ) -> pd.DataFrame:
     """Return the trade frame the audit replays against.
 
-    Scoped to `run_ids` when supplied (list of UUID strings from
-    `backtest_runs.run_id`); otherwise reads every row. See ASSUMPTIONS at top
-    of file for schema.
-    """
-    where: list[str] = []
-    params: list[object] = []
-    if run_ids is not None:
-        if not run_ids:
-            # Empty list = "scope matches nothing" — return an empty frame with
-            # the right columns rather than an unscoped read of every row.
-            placeholder = "?"
-            where.append(f"run_id = {placeholder}")
-            params.append("__no_match__")
-        else:
-            placeholders = ", ".join(["?"] * len(run_ids))
-            where.append(f"run_id IN ({placeholders})")
-            params.extend(run_ids)
-    if since_ms is not None:
-        where.append("signal_time >= ?")
-        params.append(since_ms)
-    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
-    sql = f"""
-        SELECT symbol, timeframe AS tf, strategy, direction, signal_time,
-               entry_price, sl_price, exit_price, outcome, pnl_r,
-               low_volume, volume_spike, run_id
-        FROM backtest_trades
-        {where_sql}
+    Scoped to `run_ids` when supplied (every row of those runs); otherwise the
+    shared pooled selection, one row per signal (``load_backtest_trades``). See
+    ASSUMPTIONS at top of file for schema.
     """
     with duckdb.connect(str(db_path), read_only=True) as conn:
-        return conn.execute(sql, params).fetchdf()
+        df = load_backtest_trades(
+            conn,
+            columns=(
+                "symbol",
+                "timeframe",
+                "strategy",
+                "direction",
+                "signal_time",
+                "entry_price",
+                "sl_price",
+                "exit_price",
+                "outcome",
+                "pnl_r",
+                "low_volume",
+                "volume_spike",
+                "run_id",
+            ),
+            run_ids=run_ids,
+            not_null=(),
+            dedup_on=None if run_ids is not None else SIGNAL_KEY,
+        )
+    if since_ms is not None:
+        df = df[df["signal_time"] >= since_ms].reset_index(drop=True)
+    return df.rename(columns={"timeframe": "tf"})
 
 
 def _resolve_config_run_ids(db_path: Path, config_path: Path) -> list[str]:

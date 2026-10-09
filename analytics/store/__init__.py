@@ -19,6 +19,11 @@ from analytics.store.backtest_runs import (
     upsert_backtest_run,
     upsert_backtest_trades,
 )
+from analytics.store.backtest_trades import (
+    ENTRY_KEY,
+    SIGNAL_KEY,
+    load_backtest_trades,
+)
 from analytics.store.combos import (
     get_combo_lookup,
     get_cross_tf_combo_lookup,
@@ -66,6 +71,8 @@ from analytics.store.stats_cache import (
 __all__ = [
     "BacktestSnapshot",
     "DEFAULT_DB_PATH",
+    "ENTRY_KEY",
+    "SIGNAL_KEY",
     "_OUTCOME_COLUMNS",
     "_backtest_run_id",
     "_make_bt_cache_key",
@@ -88,6 +95,7 @@ __all__ = [
     "get_win_rate_by_strategy",
     "init_schema",
     "list_backtest_runs",
+    "load_backtest_trades",
     "list_combo_runs",
     "list_cross_tf_combo_runs",
     "prune_backtest_cache",

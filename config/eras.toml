@@ -19,6 +19,42 @@
 # Keep this list SHORT and verifiable. An entry nobody can check is worse than an
 # absent one: it makes the registry look complete while carrying a guess.
 
+# --------------------------------------------------------------------------
+# Detector floors — read by `analytics.store.backtest_trades`, the one loader
+# every `backtest_trades` reader goes through (#985).
+#
+# A floor names the earliest `backtest_runs.run_at_ms` whose trades a POOLED
+# study may read for that detector: every run saved before it was produced by
+# code the detector no longer runs. Rated readers pick their runs with
+# `select_rated_run_ids` and are not floored here.
+#
+# Each entry needs `id`, `strategies`, `since` (an RFC 3339 UTC instant) and
+# `why`. Declared by hand on purpose, never derived from git: the post-fix
+# `/db-update` saved its runs at 13:42-13:44Z on the fix branch, 31 minutes
+# BEFORE the 14:15Z merge, so a git-derived floor would exclude the only
+# post-fix runs. Pre-fix runs are kept, not purged: old code is the only way
+# to regenerate them.
+# --------------------------------------------------------------------------
+
+[[detector_floor]]
+id = "bos-liquidity-sweep-causality-652"
+strategies = ["bos", "liquidity_sweep"]
+since = "2026-08-18T13:21:00Z"
+why = """
+`d5fba6c` (#652) made `bos` and `liquidity_sweep` causal. `bos` had stamped
+every signal at the swing bar, five bars before it was confirmed, and
+`liquidity_sweep` referenced unconfirmed pivots on 23-42% of its signals. The
+working tree carried the fix from 13:21Z (PR #652). Rows from runs saved before
+this instant were emitted by the look-ahead detectors.
+
+A run saved after the floor is admitted only if its trade layer is clean (its
+stored closed rows equal its own `closed_trades`). Until #987 the trade writer
+never deleted a run's old rows, so the 2026-08-18 `bos` runs carried their
+pre-fix signals under the post-fix run_ids. Measured on the 2026-10-09
+snapshot: the floor alone admits 4,233 leaked `bos` rows, all in the 27 runs
+that fail that check, and the check removes every one of them.
+"""
+
 [[boundary]]
 id = "orphan-prune-615"
 date = "2026-08-13"

@@ -14,6 +14,7 @@ import duckdb
 import pandas as pd
 import pytest
 
+from analytics.store import init_schema
 from tools import gate_audit
 
 # ---------------------------------------------------------------------------
@@ -679,8 +680,29 @@ class TestLoadTrades:
         df = gate_audit.load_trades(db, [], since_ms=None)
         assert df.empty
 
-    def test_no_run_ids_returns_all(self, tmp_path: Path) -> None:
+    def test_no_run_ids_reads_the_pooled_selection(self, tmp_path: Path) -> None:
+        """Unscoped = the shared pooled read: one row per signal, newest run."""
         db = tmp_path / "t.db"
-        _build_test_db(db)
+        with duckdb.connect(str(db)) as conn:
+            init_schema(conn)
+            for run_id, at in (("run-old", 1000), ("run-new", 2000)):
+                conn.execute(
+                    "INSERT INTO backtest_runs (run_id, symbol, timeframe, strategy, "
+                    "data_start_ms, data_end_ms, days, sl_pct, tp_r, fee_pct, "
+                    "day_filter, smt_trend_filter, total_signals, closed_trades, "
+                    "win_count, loss_count, win_rate, avg_r, total_r, max_drawdown_r, "
+                    "run_at_ms) VALUES (?, 'BTCUSDT', '1h', 'fvg', 0, 1, 30, 0.02, "
+                    "2.0, 0.0, 'off', 0, 1, 1, 1, 0, 1.0, 1.0, 1.0, 0.0, ?)",
+                    [run_id, at],
+                )
+                conn.execute(
+                    "INSERT INTO backtest_trades (trade_id, run_id, symbol, timeframe, "
+                    "strategy, direction, signal_time, entry_time, entry_price, "
+                    "sl_price, tp_price, outcome, pnl_r) VALUES "
+                    "(?, ?, 'BTCUSDT', '1h', 'fvg', 'long', 0, 1, 100.0, 99.0, 102.0, "
+                    "'win', ?)",
+                    [f"{run_id}:0", run_id, 2.0 if run_id == "run-new" else 1.0],
+                )
         df = gate_audit.load_trades(db, None, since_ms=None)
-        assert len(df) == 3
+        assert df["run_id"].tolist() == ["run-new"]
+        assert "tf" in df.columns

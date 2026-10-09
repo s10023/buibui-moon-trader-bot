@@ -71,7 +71,7 @@ from analytics.state_audit import (  # noqa: E402
     family_pbo,
     sign_agrees_early_late,
 )
-from analytics.store import DEFAULT_DB_PATH, _upsert  # noqa: E402
+from analytics.store import DEFAULT_DB_PATH, _upsert, load_backtest_trades  # noqa: E402
 from analytics.venue_fetch import fetch_yahoo_daily  # noqa: E402
 
 _DAY_MS = 86_400_000
@@ -89,16 +89,10 @@ _FX_SYMBOL = "JPY=X"
 # uses for level vs change).
 _AXES: tuple[tuple[str, str], ...] = (("run", "run_state"), ("magnitude", "mag_state"))
 
-_TRADE_QUERIES: dict[str, str] = {
-    "backtest": (
-        "SELECT entry_time, direction, pnl_r FROM backtest_trades "
-        "WHERE pnl_r IS NOT NULL"
-    ),
-    "live": (
-        "SELECT candle_ts_ms AS entry_time, direction, outcome_r AS pnl_r "
-        "FROM signal_alert_outcomes WHERE outcome_r IS NOT NULL"
-    ),
-}
+_LIVE_QUERY = (
+    "SELECT candle_ts_ms AS entry_time, direction, outcome_r AS pnl_r "
+    "FROM signal_alert_outcomes WHERE outcome_r IS NOT NULL"
+)
 
 _VERDICT_ORDER = {"BUILD": 0, "AVOID": 0, "NO-EDGE": 1, "INSUFFICIENT": 2}
 
@@ -171,7 +165,9 @@ def load_btc_daily(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
 
 
 def load_trades(conn: duckdb.DuckDBPyConnection, source: str) -> pd.DataFrame:
-    return conn.execute(_TRADE_QUERIES[source]).df()
+    if source == "backtest":
+        return load_backtest_trades(conn, columns=("entry_time", "direction", "pnl_r"))
+    return conn.execute(_LIVE_QUERY).df()
 
 
 # --------------------------------------------------------------------------- #

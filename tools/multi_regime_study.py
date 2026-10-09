@@ -49,7 +49,7 @@ from statistics import NormalDist
 import duckdb
 
 from analytics.audit_guard import DEFAULT_BAR, powered_null
-from analytics.store import DEFAULT_DB_PATH
+from analytics.store import DEFAULT_DB_PATH, load_backtest_trades
 
 NORM = NormalDist()
 Z95 = NORM.inv_cdf(0.975)  # 1.9600, the CI the verdict rests on
@@ -121,41 +121,30 @@ def load_legs(
     ``/db-update``; an empty result is a missing population, not a finding, and
     the untracked original reported the two identically.
     """
-    rows = conn.execute(
-        """
-        select strategy, timeframe, direction,
-               case when entry_time >= ? and entry_time < ? then 'bull'
-                    when entry_time >= ? and entry_time < ? then 'bear' end as leg,
-               pnl_r
-        from (select distinct on (symbol, timeframe, strategy, direction, entry_time)
-                     symbol, timeframe, strategy, direction, entry_time, pnl_r
-              from backtest_trades where pnl_r is not null)
-        where (entry_time >= ? and entry_time < ?) or (entry_time >= ? and entry_time < ?)
-        """,
-        [
-            ms(BULL[1]),
-            ms(BULL[1] + 1),
-            ms(BEAR[1]),
-            ms(BEAR[1] + 1),
-            ms(BULL[1]),
-            ms(BULL[1] + 1),
-            ms(BEAR[1]),
-            ms(BEAR[1] + 1),
-        ],
-    ).fetchall()
-
+    pool = load_backtest_trades(
+        conn,
+        columns=("strategy", "timeframe", "direction", "entry_time", "pnl_r"),
+    )
     cells: dict[tuple[str, str, str], dict[str, list[float]]] = {}
-    for strat, tf, direction, leg, r in rows:
+    for strat, tf, direction, entry_time, r in pool.itertuples(index=False, name=None):
+        if ms(BULL[1]) <= entry_time < ms(BULL[1] + 1):
+            leg = "bull"
+        elif ms(BEAR[1]) <= entry_time < ms(BEAR[1] + 1):
+            leg = "bear"
+        else:
+            continue
         cells.setdefault((strat, tf, direction), {"bull": [], "bear": []})[leg].append(
-            r
+            float(r)
         )
 
     n_bull = sum(len(v["bull"]) for v in cells.values())
     n_bear = sum(len(v["bear"]) for v in cells.values())
     if n_bull == 0 or n_bear == 0:
-        span = conn.execute(
-            "select min(entry_time), max(entry_time) from backtest_trades"
-        ).fetchone()
+        span = (
+            (pool["entry_time"].min(), pool["entry_time"].max())
+            if not pool.empty
+            else None
+        )
         lo = (
             datetime.fromtimestamp(span[0] / 1000, UTC).date()
             if span and span[0]

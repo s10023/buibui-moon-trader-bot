@@ -42,7 +42,11 @@ sys.path.insert(0, str(REPO_ROOT))
 from analytics import audit_guard  # noqa: E402
 from analytics.reference_levels import LEVEL_NAMES, compute_levels_table  # noqa: E402
 from analytics.research_guards import utc_day_keys  # noqa: E402
-from analytics.store import DEFAULT_DB_PATH  # noqa: E402
+from analytics.store import (  # noqa: E402
+    DEFAULT_DB_PATH,
+    SIGNAL_KEY,
+    load_backtest_trades,
+)
 from analytics.store.market_data import get_ohlcv  # noqa: E402
 
 PRIMARY_LABELS = (
@@ -581,13 +585,22 @@ def _load_entries(db: Path, src: str, since_ms: int | None) -> pd.DataFrame:
             if since_ms is not None:
                 q += f" AND candle_ts_ms >= {since_ms}"
             return normalize_live(conn.execute(q).df())
-        q = (
-            "SELECT symbol, timeframe, direction, entry_price, signal_time, pnl_r "
-            "FROM backtest_trades WHERE pnl_r IS NOT NULL AND entry_price IS NOT NULL"
+        df = load_backtest_trades(
+            conn,
+            columns=(
+                "symbol",
+                "timeframe",
+                "direction",
+                "entry_price",
+                "signal_time",
+                "pnl_r",
+            ),
+            not_null=("pnl_r", "entry_price"),
+            dedup_on=SIGNAL_KEY,
         )
         if since_ms is not None:
-            q += f" AND signal_time >= {since_ms}"
-        return normalize_backtest(conn.execute(q).df())
+            df = df[df["signal_time"] >= since_ms]
+        return normalize_backtest(df)
 
 
 def _load_market(

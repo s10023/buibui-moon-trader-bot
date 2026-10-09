@@ -85,6 +85,7 @@ from analytics.research_guards import (  # noqa: E402
     utc_day_keys,
 )
 from analytics.store._common import DEFAULT_DB_PATH  # noqa: E402
+from analytics.store.backtest_trades import load_backtest_trades  # noqa: E402
 from portfolio.sizing import round_trip_drag_r  # noqa: E402
 from tools.st104_sweep import ARMS, STRATEGY, arm_params_json  # noqa: E402
 
@@ -213,24 +214,48 @@ def load_trades(
     and its target, so OHLC alone cannot say which came first. The join is on the
     exit bar in `ohlcv`, the view consumers read.
     """
-    rows = conn.execute(
-        """
-        SELECT t.timeframe, t.direction, t.pnl_r, t.entry_time,
-               t.entry_price, t.sl_price, r.fee_pct,
-               CASE WHEN o.low IS NULL THEN 0
-                    WHEN o.low <= LEAST(t.sl_price, t.tp_price)
-                     AND o.high >= GREATEST(t.sl_price, t.tp_price) THEN 1
-                    ELSE 0 END AS ambiguous
-        FROM backtest_trades t
-        JOIN backtest_runs r ON r.run_id = t.run_id
-        LEFT JOIN ohlcv o
-          ON o.symbol = t.symbol AND o.timeframe = t.timeframe
-         AND o.open_time = t.exit_time
-        WHERE r.strategy = ? AND r.detector_params = ?
-          AND t.pnl_r IS NOT NULL
-        """,
-        [STRATEGY, arm_params_json(arm)],
-    ).fetchall()
+    run_ids = [
+        str(r[0])
+        for r in conn.execute(
+            "SELECT run_id FROM backtest_runs WHERE strategy = ? AND detector_params = ?",
+            [STRATEGY, arm_params_json(arm)],
+        ).fetchall()
+    ]
+    trades = load_backtest_trades(
+        conn,
+        columns=(
+            "symbol",
+            "timeframe",
+            "direction",
+            "pnl_r",
+            "entry_time",
+            "entry_price",
+            "sl_price",
+            "tp_price",
+            "exit_time",
+        ),
+        run_ids=run_ids,
+        run_columns=("fee_pct",),
+        dedup_on=None,
+    )
+    conn.register("_st104_trades", trades)
+    try:
+        rows = conn.execute(
+            """
+            SELECT t.timeframe, t.direction, t.pnl_r, t.entry_time,
+                   t.entry_price, t.sl_price, t.fee_pct,
+                   CASE WHEN o.low IS NULL THEN 0
+                        WHEN o.low <= LEAST(t.sl_price, t.tp_price)
+                         AND o.high >= GREATEST(t.sl_price, t.tp_price) THEN 1
+                        ELSE 0 END AS ambiguous
+            FROM _st104_trades t
+            LEFT JOIN ohlcv o
+              ON o.symbol = t.symbol AND o.timeframe = t.timeframe
+             AND o.open_time = t.exit_time
+            """
+        ).fetchall()
+    finally:
+        conn.unregister("_st104_trades")
 
     grouped: dict[tuple[str, str], list[tuple[float, int, int, float, float]]] = {}
     for (

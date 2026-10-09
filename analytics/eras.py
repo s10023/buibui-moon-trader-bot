@@ -310,6 +310,65 @@ def declared_boundaries(path: Path = DEFAULT_ERAS_PATH) -> list[EraBoundary]:
     return sorted(out)
 
 
+@dataclass(frozen=True)
+class DetectorFloor:
+    """The earliest run a pooled study may read for one detector (``[[detector_floor]]``)."""
+
+    strategy: str
+    since_ms: int
+    ref: str
+    why: str
+
+
+def detector_floors(path: Path = DEFAULT_ERAS_PATH) -> dict[str, DetectorFloor]:
+    """Read ``[[detector_floor]]`` from ``config/eras.toml``, keyed by strategy.
+
+    Raises on a missing registry, an absent table or a malformed entry, for the
+    reason the module docstring gives: an empty mapping would admit every
+    pre-fix run while reading as "no detector needs a floor".
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"era registry missing at {path}")
+    with path.open("rb") as fh:
+        data = tomllib.load(fh)
+    entries = data.get("detector_floor")
+    if not isinstance(entries, list) or not entries:
+        raise ValueError(f"{path} declares no [[detector_floor]] entries")
+
+    out: dict[str, DetectorFloor] = {}
+    for i, entry in enumerate(entries):
+        missing = [k for k in ("id", "strategies", "since", "why") if k not in entry]
+        if missing:
+            raise ValueError(f"{path} [[detector_floor]] #{i + 1} is missing {missing}")
+        strategies = entry["strategies"]
+        if not isinstance(strategies, list) or not strategies:
+            raise ValueError(
+                f"{path} detector_floor {entry['id']!r}: `strategies` must be a "
+                "non-empty list"
+            )
+        try:
+            ts = datetime.fromisoformat(str(entry["since"]).replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError(
+                f"{path} detector_floor {entry['id']!r} has an unparseable `since` "
+                f"{entry['since']!r}; expected an RFC 3339 UTC instant"
+            ) from exc
+        if ts.utcoffset() is None:
+            raise ValueError(
+                f"{path} detector_floor {entry['id']!r}: `since` needs a UTC offset"
+            )
+        for strategy in strategies:
+            if strategy in out:
+                raise ValueError(f"{path}: {strategy!r} has more than one floor")
+            out[str(strategy)] = DetectorFloor(
+                strategy=str(strategy),
+                since_ms=int(ts.timestamp() * 1000),
+                ref=str(entry["id"]),
+                why=str(entry["why"]),
+            )
+    return out
+
+
 def load_boundaries(
     *,
     scopes: Sequence[str] = SCOPES,

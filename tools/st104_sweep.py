@@ -356,19 +356,41 @@ def _cmd_export(args: argparse.Namespace) -> int:
     """
     import duckdb  # noqa: PLC0415 - deferred so --help works without the venv
 
-    placeholders = ", ".join("?" for _ in ARMS)
+    from analytics.store.backtest_trades import (  # noqa: PLC0415
+        load_backtest_trades,
+    )
+
+    arms = all_arm_params_json()
     out = args.out / "st104-study-trades.parquet"
-    literal = str(out).replace("'", "''")
     with duckdb.connect(str(args.source), read_only=True) as conn:
-        conn.execute(
-            "COPY (SELECT r.detector_params, t.symbol, t.timeframe, t.direction, "
-            "t.entry_time, t.exit_time, t.entry_price, t.sl_price, t.tp_price, "
-            "t.pnl_r, r.fee_pct FROM backtest_trades t "
-            "JOIN backtest_runs r ON r.run_id = t.run_id "
-            f"WHERE r.strategy = ? AND r.detector_params IN ({placeholders})) "
-            f"TO '{literal}' (FORMAT PARQUET, COMPRESSION ZSTD)",
-            [STRATEGY, *all_arm_params_json()],
+        run_ids = [
+            str(r[0])
+            for r in conn.execute(
+                "SELECT run_id FROM backtest_runs WHERE strategy = ? AND "
+                f"detector_params IN ({', '.join('?' for _ in arms)})",
+                [STRATEGY, *arms],
+            ).fetchall()
+        ]
+        trades = load_backtest_trades(
+            conn,
+            columns=(
+                "symbol",
+                "timeframe",
+                "direction",
+                "entry_time",
+                "exit_time",
+                "entry_price",
+                "sl_price",
+                "tp_price",
+                "pnl_r",
+            ),
+            run_ids=run_ids,
+            run_columns=("detector_params", "fee_pct"),
+            not_null=(),
+            dedup_on=None,
         )
+    cols = ["detector_params", *(c for c in trades.columns if c != "detector_params")]
+    trades[cols].to_parquet(out, compression="zstd", index=False)
     print(f"ST104 export -> {out} ({out.stat().st_size / 1e6:.1f} MB)")
     return 0
 

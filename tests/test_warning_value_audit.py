@@ -56,23 +56,20 @@ class TestNormalizers:
         ]
         assert len(out) == 1  # null candle_ts_ms dropped
 
-    def test_normalize_backtest_dedups_across_runs(self) -> None:
+    def test_normalize_backtest_is_a_reshape_only(self) -> None:
+        """Cross-run dedup belongs to ``load_backtest_trades``, never a reader (#985)."""
         raw = pd.DataFrame(
             {
-                "run_id": ["run_a", "run_b", "run_a"],
                 "symbol": ["BTCUSDT"] * 3,
                 "timeframe": ["1h"] * 3,
                 "strategy": ["fvg"] * 3,
                 "direction": ["long"] * 3,
-                "signal_time": [1000, 1000, 2000],
+                "signal_time": [1000, 1000, None],
                 "pnl_r": [0.5, 0.9, -0.2],
             }
         )
         out = normalize_backtest(raw)
-        assert len(out) == 2  # duplicate signal collapsed
-        kept = out[out["ts_ms"] == 1000].iloc[0]
-        assert kept["r"] == 0.9  # latest run_id wins
-        assert "run_id" not in out.columns
+        assert out["r"].tolist() == [0.5, 0.9]  # null ts dropped, nothing deduped
 
 
 class TestExploratory:

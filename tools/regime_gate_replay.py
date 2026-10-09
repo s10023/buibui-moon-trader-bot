@@ -28,7 +28,7 @@ import pandas as pd
 
 from analytics.regime import Regime, classify_series
 from analytics.signal_config import load_signal_config
-from analytics.store import DEFAULT_DB_PATH
+from analytics.store import DEFAULT_DB_PATH, load_backtest_trades
 from analytics.strategies import STRATEGY_REGISTRY
 
 # Live gate uses 4h candles regardless of signal TF (per config/strategy_params.toml).
@@ -45,17 +45,12 @@ def _load_trades(
     """All closed trades for the strategies the gate could suppress."""
     if not strategies:
         return pd.DataFrame()
-    placeholders = ",".join(["?"] * len(strategies))
-    return conn.execute(
-        f"""
-        SELECT strategy, symbol, timeframe, direction, entry_time, pnl_r
-        FROM backtest_trades
-        WHERE strategy IN ({placeholders})
-          AND outcome != 'open'
-          AND pnl_r IS NOT NULL
-        """,
-        strategies,
-    ).df()
+    return load_backtest_trades(
+        conn,
+        columns=("strategy", "symbol", "timeframe", "direction", "entry_time", "pnl_r"),
+        strategies=strategies,
+        closed_only=True,
+    )
 
 
 def _load_4h_ohlcv(conn: duckdb.DuckDBPyConnection, symbol: str) -> pd.DataFrame:

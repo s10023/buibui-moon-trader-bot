@@ -42,7 +42,11 @@ from analytics.sl_horizon import (  # noqa: E402
     resolve_arm,
     window_for_signal,
 )
-from analytics.store import DEFAULT_DB_PATH  # noqa: E402
+from analytics.store import (  # noqa: E402
+    DEFAULT_DB_PATH,
+    SIGNAL_KEY,
+    load_backtest_trades,
+)
 from analytics.store.market_data import get_ohlcv  # noqa: E402
 from analytics.strategies._registry import DETECTOR_REGISTRY  # noqa: E402
 
@@ -286,38 +290,31 @@ def load_stored_backtest_trades(
 ) -> pd.DataFrame:
     """Stored engine trades for the family, deduped across saved runs.
 
-    Keeps the lexicographically-latest ``run_id`` per
-    ``(symbol, tf, strategy, direction, signal_time)`` — the same dedup
-    ``tools/warning_value_audit.py`` uses. Returns the columns
+    One row per ``(symbol, tf, strategy, direction, signal_time)``, chosen by
+    the shared loader (``analytics.store.load_backtest_trades``). Returns the columns
     ``check_fidelity`` expects: ``strategy``, ``tf``, ``key``, ``stored_r``,
     ``stored_outcome``.
     """
-    fam = ", ".join("?" for _ in FAMILY)
-    sym = ", ".join("?" for _ in symbols)
-    tfs = ", ".join("?" for _ in timeframes)
-    raw = conn.execute(
-        f"""
-        SELECT run_id, symbol, timeframe AS tf, strategy, direction,
-               signal_time, pnl_r, outcome
-        FROM backtest_trades
-        WHERE strategy IN ({fam})
-          AND symbol IN ({sym})
-          AND timeframe IN ({tfs})
-          AND pnl_r IS NOT NULL
-        """,
-        [*FAMILY, *symbols, *timeframes],
-    ).df()
-    if raw.empty:
+    deduped = load_backtest_trades(
+        conn,
+        columns=(
+            "symbol",
+            "timeframe",
+            "strategy",
+            "direction",
+            "signal_time",
+            "pnl_r",
+            "outcome",
+        ),
+        strategies=list(FAMILY),
+        symbols=symbols,
+        timeframes=timeframes,
+        dedup_on=SIGNAL_KEY,
+    ).rename(columns={"timeframe": "tf"})
+    if deduped.empty:
         return pd.DataFrame(
             columns=["strategy", "tf", "key", "stored_r", "stored_outcome"]
         )
-
-    # Sort then drop_duplicates in pandas — DuckDB window functions have
-    # segfaulted on this table before (see feedback_duckdb_window_functions).
-    raw = raw.sort_values("run_id")
-    deduped = raw.drop_duplicates(
-        subset=["symbol", "tf", "strategy", "direction", "signal_time"], keep="last"
-    )
     deduped = deduped.assign(
         key=(
             deduped["symbol"].astype(str)
