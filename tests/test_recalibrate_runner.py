@@ -22,6 +22,16 @@ from analytics.eras import EraBoundary
 from analytics.store import init_schema
 
 
+@pytest.fixture(autouse=True)
+def _no_detector_floors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests seed ``bos`` at toy ``run_at_ms`` values, below its real floor.
+
+    They pin the runner, not the floor, so the floor is switched off here.
+    ``TestDetectorFloorSelection`` in ``test_recalibrate_lib.py`` covers it (#993).
+    """
+    monkeypatch.setattr("analytics.recalibrate_lib.detector_floors", dict)
+
+
 def _insert_run(
     conn: duckdb.DuckDBPyConnection,
     run_id: str,

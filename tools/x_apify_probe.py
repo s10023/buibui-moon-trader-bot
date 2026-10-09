@@ -35,6 +35,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 API = "https://api.apify.com/v2"
@@ -368,4 +369,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # Repo root, for utils.stdio: a bare `python tools/<name>.py` puts only
+    # tools/ on the path. Scoped to the entry so an import mutates nothing.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from utils.stdio import utf8_stdio
+
+    utf8_stdio()
     main()

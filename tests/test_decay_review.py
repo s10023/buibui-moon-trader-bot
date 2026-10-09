@@ -74,6 +74,16 @@ def _insert(
     )
 
 
+@pytest.fixture(autouse=True)
+def _no_detector_floors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests seed ``bos`` at toy ``run_at_ms`` values, below its real floor.
+
+    They pin the ranking, not the floor, so the floor is switched off here.
+    ``TestDetectorFloorSelection`` in ``test_recalibrate_lib.py`` covers it (#993).
+    """
+    monkeypatch.setattr("analytics.recalibrate_lib.detector_floors", dict)
+
+
 @pytest.fixture
 def conn() -> duckdb.DuckDBPyConnection:
     c = duckdb.connect(":memory:")

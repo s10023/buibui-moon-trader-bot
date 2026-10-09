@@ -92,7 +92,22 @@ def _in_clause(column: str, values: Sequence[str]) -> tuple[str, list[str]]:
     return f"{column} IN ({', '.join('?' * len(values))})", list(values)
 
 
-def _floor_clause(floors: Mapping[str, DetectorFloor]) -> tuple[str, list[object]]:
+def _closed_count_join(
+    floors: Mapping[str, DetectorFloor], run_id_col: str
+) -> tuple[str, list[object]]:
+    """``LEFT JOIN`` exposing ``c.n_closed``, each floored run's stored closed rows."""
+    in_sql, in_params = _in_clause("strategy", sorted(floors))
+    join = (
+        "LEFT JOIN (SELECT run_id, COUNT(*) AS n_closed FROM backtest_trades "
+        f"WHERE outcome <> 'open' AND pnl_r IS NOT NULL AND {in_sql} "
+        f"GROUP BY run_id) c ON c.run_id = {run_id_col}"
+    )
+    return join, list(in_params)
+
+
+def _floor_clause(
+    floors: Mapping[str, DetectorFloor], strategy_col: str = "t.strategy"
+) -> tuple[str, list[object]]:
     """SQL admitting a trade only from a floored detector's clean, post-floor run."""
     if not floors:
         return "", []
@@ -101,13 +116,31 @@ def _floor_clause(floors: Mapping[str, DetectorFloor]) -> tuple[str, list[object
     params: list[object] = []
     for name in names:
         params += [name, floors[name].since_ms]
-    in_sql, in_params = _in_clause("t.strategy", names)
+    in_sql, in_params = _in_clause(strategy_col, names)
     clause = (
         f"(NOT {in_sql} OR ("
-        f"r.run_at_ms >= CASE t.strategy {cases} END "
+        f"r.run_at_ms >= CASE {strategy_col} {cases} END "
         "AND r.closed_trades = COALESCE(c.n_closed, 0)))"
     )
     return clause, [*in_params, *params]
+
+
+def floored_run_admission(
+    floors: Mapping[str, DetectorFloor],
+) -> tuple[tuple[str, list[object]], tuple[str, list[object]]]:
+    """``((join_sql, params), (where_sql, params))`` flooring ``backtest_runs r``.
+
+    The same admission the pooled read applies, for a caller that chooses runs
+    rather than trades (``recalibrate_lib.select_rated_run_ids``, #993): a
+    floored detector's run counts only if it was saved at or after the floor and
+    its trade layer is clean.
+    """
+    if not floors:
+        return ("", []), ("TRUE", [])
+    return (
+        _closed_count_join(floors, "r.run_id"),
+        _floor_clause(floors, "r.strategy"),
+    )
 
 
 def load_backtest_trades(
@@ -166,14 +199,8 @@ def load_backtest_trades(
     else:
         active = detector_floors() if floors is None else floors
         if active:
-            names = sorted(active)
-            in_sql, in_params = _in_clause("strategy", names)
-            join_count = (
-                "LEFT JOIN (SELECT run_id, COUNT(*) AS n_closed FROM backtest_trades "
-                f"WHERE outcome <> 'open' AND pnl_r IS NOT NULL AND {in_sql} "
-                "GROUP BY run_id) c ON c.run_id = t.run_id"
-            )
-            params += in_params
+            join_count, join_params = _closed_count_join(active, "t.run_id")
+            params += join_params
         clause, floor_params = _floor_clause(active)
         if clause:
             where.append(clause)

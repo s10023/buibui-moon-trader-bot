@@ -12,9 +12,13 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
+from analytics.eras import DetectorFloor, detector_floors
 from analytics.research_guards import GATE_DSR, deflated_sharpe_ratio
 from analytics.signal_config import SignalWatchConfig, declared_cells
-from analytics.store.backtest_trades import load_backtest_trades
+from analytics.store.backtest_trades import (
+    floored_run_admission,
+    load_backtest_trades,
+)
 
 # A 5-star cell whose Deflated Sharpe falls below this is overfit-suspect (spec
 # section 3). Derived from the published gate rather than restated: this line held its
@@ -49,9 +53,9 @@ def _build_run_filter(
 ) -> tuple[str, list[str | float]]:
     """Build the shared backtest_runs WHERE-tail (day_filter + ADR + parity scope).
 
-    Returns ``(sql_tail, params)`` where ``sql_tail`` is appended after
-    ``WHERE closed_trades > 0``. Mirrors the exact scoping used by both the
-    rating aggregation and the DSR annotation so they always read the same runs.
+    Returns ``(sql_tail, params)`` where ``sql_tail`` is appended to
+    :func:`select_rated_run_ids`' ``WHERE`` clause, the one selection both the
+    rating aggregation and the DSR annotation read.
     """
     sql = ""
     params: list[str | float] = []
@@ -88,6 +92,7 @@ def select_rated_run_ids(
     conn: duckdb.DuckDBPyConnection,
     day_filter: str | None = None,
     adr_suppress_threshold: float | None = None,
+    floors: Mapping[str, DetectorFloor] | None = None,
 ) -> list[str]:
     """Return one ``backtest_runs.run_id`` per (strategy, timeframe, symbol).
 
@@ -98,28 +103,45 @@ def select_rated_run_ids(
     (measured: 53% of rated ``tue_thu`` cells). See ``_backtest_run_id``'s
     ``writer`` argument.
 
+    **A floored detector never falls back below its floor (#993).** A detector
+    with a ``[[detector_floor]]`` in ``config/eras.toml`` (``floors`` defaults
+    to it) is ranked only over runs the pooled loader would admit: saved at or
+    after the floor, with a clean trade layer. Its ranking also ignores the run's
+    outcome, so a winning run that closed nothing drops that symbol from the
+    cell. Filtering on ``closed_trades > 0`` before ranking selected on the
+    result: when the newest sweep closed nothing, the cell was rated from
+    whichever older run had trades, which for ``bos`` was the 2026-05-21
+    look-ahead detector. Unfloored detectors keep the ``closed_trades > 0``
+    filter.
+
     Exists so the ranking has **one** implementation rather than a copy per
     caller. It previously lived inline in :func:`compute_dsr_ratings`, and the
     weekly decay review's out-of-tree copy had already drifted back to
     recency-only — reading a different run population than the gate it audits.
-    Any new consumer must call this, not re-derive it.
+    :func:`get_backtest_win_rates` calls it too. Any new consumer must call this,
+    not re-derive it.
     """
+    active = detector_floors() if floors is None else floors
     filter_sql, params = _build_run_filter(day_filter, adr_suppress_threshold)
+    (join_sql, join_params), (floor_sql, floor_params) = floored_run_admission(active)
+    names = sorted(active)
+    floored_sql = f"r.strategy IN ({', '.join('?' * len(names))})" if names else "FALSE"
     run_rows = conn.execute(
-        f"SELECT run_id, strategy, timeframe, symbol, run_at_ms, sweep_id "
-        f"FROM backtest_runs "
-        f"WHERE closed_trades > 0{filter_sql}",
-        params,
+        f"SELECT r.run_id, r.strategy, r.timeframe, r.symbol, r.run_at_ms, "
+        f"r.sweep_id, r.closed_trades "
+        f"FROM backtest_runs r {join_sql} "
+        f"WHERE (r.closed_trades > 0 OR {floored_sql}) AND {floor_sql}{filter_sql}",
+        [*join_params, *names, *floor_params, *params],
     ).fetchall()
 
-    best: dict[tuple[str, str, str], tuple[int, int, str]] = {}
-    for run_id, strategy, tf, symbol, run_at_ms, sweep_id in run_rows:
+    best: dict[tuple[str, str, str], tuple[int, int, str, int]] = {}
+    for run_id, strategy, tf, symbol, run_at_ms, sweep_id, closed in run_rows:
         key = (str(strategy), str(tf), str(symbol))
         rank = (1 if sweep_id is not None else 0, int(run_at_ms))
         cur = best.get(key)
         if cur is None or rank > (cur[0], cur[1]):
-            best[key] = (rank[0], rank[1], str(run_id))
-    return [v[2] for v in best.values()]
+            best[key] = (rank[0], rank[1], str(run_id), int(closed or 0))
+    return [v[2] for v in best.values() if v[3] > 0]
 
 
 def sample_run_times(
@@ -159,12 +181,11 @@ def get_backtest_win_rates(
 ) -> pd.DataFrame:
     """Query backtest_runs grouped by (strategy, tf), return win_rate, avg_r, total_trades.
 
-    Groups across all symbols for each (strategy, timeframe) combination.
-    One run per (strategy, timeframe, symbol) is used, ranked **sweep-first, then
-    recency**: a row carrying a ``sweep_id`` outranks any non-sweep row, and
-    ``run_at_ms`` only breaks ties within a class. Older sweeps are still excluded.
-    A cell with no sweep row is rated from whatever rows it has.
-    Only includes rows where closed_trades > 0.
+    Groups across all symbols for each (strategy, timeframe) combination, over
+    the runs :func:`select_rated_run_ids` chooses: one per (strategy, timeframe,
+    symbol), sweep-first then recency, never below a detector's floor. This
+    function used to mirror that ranking in pandas; it now calls it, so the stars
+    and the DSR annotation cannot read different runs (#993).
     If day_filter is provided, only runs saved with that day_filter value are used.
     adr_suppress_threshold: when None (default) uses only runs with no ADR gate
     (adr_suppress_threshold IS NULL); when a float, uses only runs saved with that
@@ -173,18 +194,17 @@ def get_backtest_win_rates(
     Returns a DataFrame with columns:
         strategy, timeframe, total_trades, win_rate, avg_r
     """
-    # Fetch raw rows and deduplicate in Python to avoid ROW_NUMBER() window
-    # functions, which segfault in DuckDB 1.5.x on Python 3.11.
-    filter_sql, params = _build_run_filter(day_filter, adr_suppress_threshold)
-    cursor = conn.execute(
-        f"SELECT strategy, timeframe, symbol, run_at_ms, closed_trades, win_count, avg_r, "
-        f"long_closed_trades, long_win_count, long_avg_r, "
-        f"short_closed_trades, short_win_count, short_avg_r, sweep_id "
-        f"FROM backtest_runs "
-        f"WHERE closed_trades > 0{filter_sql}",
-        params,
-    )
-    rows = cursor.fetchall()
+    run_ids = select_rated_run_ids(conn, day_filter, adr_suppress_threshold)
+    rows: list[tuple[object, ...]] = []
+    if run_ids:
+        placeholders = ",".join("?" * len(run_ids))
+        rows = conn.execute(
+            f"SELECT strategy, timeframe, symbol, run_at_ms, closed_trades, "
+            f"win_count, avg_r, long_closed_trades, long_win_count, long_avg_r, "
+            f"short_closed_trades, short_win_count, short_avg_r, sweep_id "
+            f"FROM backtest_runs WHERE run_id IN ({placeholders})",
+            run_ids,
+        ).fetchall()
     if not rows:
         return pd.DataFrame(
             columns=[
@@ -220,19 +240,6 @@ def get_backtest_win_rates(
             "short_avg_r",
             "sweep_id",
         ],
-    )
-    # Keep one run per (strategy, timeframe, symbol): a SWEEP row outranks any
-    # non-sweep row, and recency only breaks ties within a class.
-    #
-    # Recency alone was the bug. The live gate writes every 15 minutes, so its row
-    # is essentially always the newest — 53% of rated `tue_thu` cells were sourced
-    # from the daemon's short-window backtest rather than the deliberate, validated
-    # sweep. Writer identity stops the two COLLIDING; without this they merely
-    # coexist and the daemon still wins. A cell with no sweep row is still rated
-    # from what it has.
-    raw["_is_sweep"] = raw["sweep_id"].notna()
-    raw = raw.sort_values(["_is_sweep", "run_at_ms"], ascending=False).drop_duplicates(
-        subset=["strategy", "timeframe", "symbol"]
     )
     # Weight each symbol's avg_r by its own trade count before aggregating.
     #

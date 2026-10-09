@@ -16,8 +16,9 @@ touched in 9 days is worth a glance, never a removal.
 Plugin skills (`plugin:skill`) and skills logged but no longer on disk are
 listed apart from the local tree, since only the local tree can be zero.
 
-Stdlib only and imports nothing from the repo, so a bare
-`python3 tools/skill_usage.py` works with no bootstrap.
+Stdlib only. Its one repo import, the stdlib-only `utils.stdio`, happens inside the
+`__main__` block after a scoped path insert, so a bare `python3 tools/skill_usage.py`
+still works and importing the module mutates nothing.
 """
 
 from __future__ import annotations
@@ -203,4 +204,10 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    # Repo root, for utils.stdio: a bare `python tools/<name>.py` puts only
+    # tools/ on the path. Scoped to the entry so an import mutates nothing.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from utils.stdio import utf8_stdio
+
+    utf8_stdio()
     sys.exit(main())

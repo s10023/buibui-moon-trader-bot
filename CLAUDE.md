@@ -116,9 +116,10 @@ paragraph below).
 
 ⚠ **Resolve that path with `tools/memory_dir.py`, never by hand.** BOTH the config root
 (`.claude-personal` on the old Linux box, `.claude` on the Windows laptop) and the project
-slug (derived from the repo's ABSOLUTE path) vary by host, so a hardcoded path is wrong on
-every machine but one.
-`$(PYTHONPATH=. poetry run python tools/memory_dir.py)` prints it; `make status` uses it.
+slug (derived from the MAIN checkout's absolute path, so every worktree shares its owner's
+tree) vary by host, so a hardcoded path is wrong on every machine but one.
+`$(PYTHONPATH=. poetry run python tools/memory_dir.py)` prints it, or exits 1 naming every
+path it tried; `make status` uses it.
 
 **Planning lives in GitHub Issues on this repo (since 2026-09-29), and it carries the same
 unprompted obligation.** A SessionStart hook (`.claude/hooks/open-issues.py`) opens every

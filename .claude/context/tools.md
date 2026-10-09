@@ -199,7 +199,8 @@ shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a 
   dirty would test stale HEAD and report green, which is the invisible pass it exists to
   kill. Exit **2** = REFUSED (dirty), **3** = INFRA (clone/install died), **1** = the suite
   genuinely failed; ⚠ make collapses all three, so read the banner. Imports nothing from
-  `tools.*`, so it needs no `sys.path` bootstrap and no `PYTHONPATH`.
+  `tools.*`, so it needs no module-level `sys.path` bootstrap and no `PYTHONPATH` (its
+  `__main__` block inserts the repo root only to reach `utils.stdio`).
   ⛔ **INFRA on the Windows host (2026-09-18): it clones and then cannot `poetry install`
   numpy, so the gate exits 3 and this branch's clean-clone property is unverifiable
   there — CI is the only verifier.** Read a 3 as "the gate did not run", never as a pass:

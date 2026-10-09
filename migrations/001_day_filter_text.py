@@ -20,6 +20,7 @@ import argparse
 import hashlib
 import os
 import sys
+from pathlib import Path
 
 
 def _run_id(
@@ -199,6 +200,12 @@ def migrate(db_path: str) -> None:
 
 
 if __name__ == "__main__":
+    # Repo root, for utils.stdio: a bare `python tools/<name>.py` puts only
+    # tools/ on the path. Scoped to the entry so an import mutates nothing.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from utils.stdio import utf8_stdio
+
+    utf8_stdio()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", default="analytics.db", help="Path to analytics.db")
     args = parser.parse_args()

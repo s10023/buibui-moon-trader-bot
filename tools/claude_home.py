@@ -27,7 +27,8 @@ from __future__ import annotations
 
 import os
 import re
-from pathlib import Path
+import subprocess
+from pathlib import Path, PurePath
 
 #: Every character outside ``[A-Za-z0-9]`` becomes ``-``. That covers the path
 #: separators and the Windows drive colon, and also ``.``, ``_`` and spaces, which
@@ -62,9 +63,59 @@ def slugify_path(text: str) -> str:
     return _NON_ALNUM.sub("-", text)
 
 
+def main_checkout_from_common_dir[P: PurePath](checkout: P, common_dir: str) -> P:
+    r"""The main working tree, given ``git rev-parse --git-common-dir`` run in `checkout`.
+
+    Pure, and typed over ``PurePath`` so a Windows answer is testable from Linux CI
+    (``PureWindowsPath``) exactly as `slugify_path` takes text for the same reason.
+    Git answers RELATIVE in the main checkout (``.git``) and absolute in a linked
+    worktree (``C:/Users/User/repo/x/.git``); both name the shared ``.git``, whose
+    parent is the main checkout. ``--path-format=absolute`` would remove the relative
+    case but needs git 2.31, and the Windows laptop runs 2.28 -- there it is echoed
+    back as a literal line rather than rejected.
+    """
+    common = type(checkout)(common_dir)
+    if not common.is_absolute():
+        common = checkout / common
+    return common.parent
+
+
+def main_checkout(repo_root: Path) -> Path:
+    """The main checkout `repo_root` belongs to: itself, or a linked worktree's owner.
+
+    **The harness keys a session's memory on the MAIN checkout, not on the worktree
+    it runs in** -- a session under ``.claude/worktrees/<name>`` reads
+    ``projects/C--Users-User-repo-buibui-moon-trader-bot/memory``. Slugging the
+    worktree's own path found nothing, and the resolver then fell through to a legacy
+    fallback on another host's config root.
+
+    A path with no ``.git`` entry, or one git cannot answer for, is returned as given:
+    probing upward would let an enclosing repository answer for a directory that is
+    not part of it.
+    """
+    if not (repo_root / ".git").exists():
+        return repo_root
+    try:
+        proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+            ["git", "rev-parse", "--git-common-dir"],  # noqa: S607
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return repo_root
+    out = proc.stdout.strip()
+    if not out:
+        return repo_root
+    return main_checkout_from_common_dir(repo_root, out).resolve()
+
+
 def project_slug(repo_root: Path) -> str:
-    """``slugify_path`` over a checkout's resolved absolute path."""
-    return slugify_path(str(repo_root.resolve()))
+    """``slugify_path`` over the resolved path of the checkout's MAIN working tree."""
+    return slugify_path(str(main_checkout(repo_root.resolve())))
 
 
 def config_roots(home: Path | None = None) -> tuple[Path, ...]:

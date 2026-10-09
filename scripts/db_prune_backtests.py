@@ -10,6 +10,7 @@ Cascade-deletes matching rows from backtest_trades (no FK enforcement in DuckDB)
 
 import sys
 import time
+from pathlib import Path
 
 import duckdb
 
@@ -137,5 +138,11 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # Repo root, for utils.stdio: a bare `python tools/<name>.py` puts only
+    # tools/ on the path. Scoped to the entry so an import mutates nothing.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from utils.stdio import utf8_stdio
+
+    utf8_stdio()
     main()
     sys.exit(0)

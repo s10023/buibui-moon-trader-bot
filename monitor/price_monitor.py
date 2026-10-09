@@ -4,7 +4,6 @@ import logging
 import sys
 from typing import Any
 
-from colorama import init
 from tabulate import tabulate
 
 from monitor import live_price
@@ -17,8 +16,6 @@ from monitor.price_lib import (
 )
 from utils.binance_client import create_client, load_coins_config
 from utils.telegram import send_telegram_message
-
-init(autoreset=True)
 
 
 def main(live: bool = False, telegram: bool = False, sort: str = "") -> None:

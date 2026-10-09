@@ -47,7 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.agents_config import AgentsConfig, Budgets, ConfigError  # noqa: E402
 from tools.agents_config import load as load_agents_config  # noqa: E402
-from tools.memory_dir import memory_dir  # noqa: E402
+from tools.memory_dir import MemoryDirNotFoundError, memory_dir  # noqa: E402
 from tools.stale_anchors import default_resolver, describe, scan  # noqa: E402
 
 Runner = Callable[[Sequence[str]], str]
@@ -64,8 +64,13 @@ SENSITIVE_TERMS = Path(".claude/sensitive-terms.txt")
 #: the `memory-cap` leg read a file that does not exist and reported **clean** — the
 #: SKIP-wearing-a-PASS shape `sanity_checks.py` documents, arriving here by the same
 #: route it arrived in `daily_check.py` (#772, which fixed that file and only that file).
-MEMORY_DIR = memory_dir()
-MEMORY = MEMORY_DIR / "MEMORY.md"
+#: A missing tree is held as ``None`` plus the resolver's message, and the
+#: `memory-cap` leg reports it as a FINDING: "could not look" must not read as clean.
+MEMORY_DIR: Path | None
+try:
+    MEMORY_DIR, MEMORY_MISSING = memory_dir(), ""
+except MemoryDirNotFoundError as _exc:
+    MEMORY_DIR, MEMORY_MISSING = None, str(_exc)
 
 
 @lru_cache(maxsize=1)
@@ -1026,9 +1031,12 @@ def _check_md_atx(changed_md: Sequence[str]) -> list[Finding]:
 
 def _check_memory_cap(budgets: Budgets | None = None) -> list[Finding]:
     b = budgets or _cfg().budgets
-    if not MEMORY.exists():
+    if MEMORY_DIR is None:
+        return [Finding("memory-cap", f"leg did not run: {MEMORY_MISSING}")]
+    memory = MEMORY_DIR / "MEMORY.md"
+    if not memory.exists():
         return []
-    text = MEMORY.read_text(encoding="utf-8")
+    text = memory.read_text(encoding="utf-8")
     n = current_state_bullets(text)
     size = len(text.encode("utf-8"))
     findings = []
@@ -1061,13 +1069,13 @@ def _check_stale_anchors() -> list[Finding]:
     repo_root = Path.cwd()
     sources = [p for root in ANCHOR_ROOTS for p in sorted(Path(root).rglob("*.md"))]
     sources += [Path(f) for f in anchor_files() if Path(f).is_file()]
-    resolve = default_resolver(repo_root, MEMORY_DIR if MEMORY_DIR.is_dir() else None)
+    resolve = default_resolver(repo_root, MEMORY_DIR)
 
     findings = [
         Finding("stale-anchors", describe(cite, target, repo_root))
         for cite, target in scan(sources, resolve)
     ]
-    if MEMORY_DIR.is_dir():
+    if MEMORY_DIR is not None:
         findings += [
             Finding("stale-anchors", describe(cite, target, repo_root))
             for cite, target in scan(
@@ -1344,4 +1352,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    from utils.stdio import utf8_stdio
+
+    utf8_stdio()
     raise SystemExit(main())
