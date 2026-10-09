@@ -681,9 +681,9 @@ evidence the wick anchor works, or that it does not.**
 **Which way the tie-break bias RUNS decides whether it is conservative or dangerous — name the
 DIRECTION per study, never just its presence** (ST57, measured 2026-08-20 by reading the code, not
 by re-running anything). This repo resolves every same-bar SL/TP tie ADVERSE-FIRST at three sites —
-`analytics/backtest/engine.py:1073`, `analytics/exits/replay.py:12`, `analytics/exits/mfe_mae.py:17`
-(`replay_exits` alone can instead re-walk a tied bar on finer bars via `fine_bars`, #924; adverse-first
-stays its default) — so every `avg_r`, `win_rate` and star rating carries a uniform PESSIMISTIC bias: harmless within
+`analytics/backtest/engine.py` (`run_backtest`), `analytics/exits/replay.py:12`, `analytics/exits/mfe_mae.py:17`
+(`replay_exits` can instead re-walk a tied bar on finer bars via `fine_bars`, #924, and `run_backtest`
+takes `tie_break="target"` for a two-reading study, #848; adverse-first stays the default at every site) — so every `avg_r`, `win_rate` and star rating carries a uniform PESSIMISTIC bias: harmless within
 one stop width, biased ACROSS widths, which bites because the flat-2% defect pins 78% of the ledger
 at one width while other detectors sit elsewhere. **`analytics/giveback.py` is the exception and the
 model to copy — it COUNTS `intrabar_ambiguous` (28 rows, 1.6%) instead of resolving it.** The tighter
@@ -695,6 +695,14 @@ is FORWARD-looking, and it is why this paragraph exists: 1h and 4h are INSUFFICI
 cleared — so a re-run there returning "widening WORKS" lands in exactly the direction the bias
 pushes and must not be believed without intrabar resolution, while a NULL there needs no such
 discount.**
+
+**H13 US-open ORB — FAILS the gate, and the effect is REAL but SUB-BAR**
+(`docs/audits/2026-10-09-h13-us-open-orb-result.md`, #848). A 15m ORB at the DST-aware NYSE cash open
+on BTC/ETH/SOL, net of cost, reads +0.052R per book-day on [+0.019, +0.085] over 1,769 sessions, and
+fails on DSR alone (0.205 at N = 3; PBO and boot_lo pass). Read it as positive and too small to act
+on, never "no edge", and not a waiting game: at the floor variance its Sharpe meets the bar only near
+20,000 book-days. A 14:00-UTC, per-direction or per-symbol re-cut is a new trial. Round 1 of #864
+ends with all three slots empty.
 
 **The binding constraint, confirmed five times** (exits, trend-weight, combine, carry,
 reversal): the system needs a second *strong* edge, and the cheap price-only free-data
@@ -1098,7 +1106,8 @@ respond to its own bar's close would be the real bug.
 Managed via Poetry (`poetry install --no-root`). Never edit `poetry.lock` by hand — use
 `poetry add` / `poetry remove`.
 
-- Runtime: `duckdb`, `pandas`, `pyarrow`, `yt-dlp` (**a NIGHTLY pin — see below**), `yt-dlp-ejs`
+- Runtime: `duckdb`, `pandas`, `pyarrow`, `yt-dlp` (**a NIGHTLY pin — see below**), `yt-dlp-ejs`,
+  `exchange-calendars` (NYSE sessions; only `analytics/trading_calendar.py` imports it)
 - Dev: ruff, mypy, pytest, pytest-mock, pre-commit, type stubs, pandas-stubs
 
 ⚠ **`yt-dlp` is pinned to a NIGHTLY pre-release on purpose** (`>=2026.8.18.122307.dev0`, with

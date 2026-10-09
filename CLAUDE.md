@@ -77,7 +77,9 @@ backslash-sensitive in a file with the Write tool and run the file.
 
 **Guardrail.** A PreToolUse hook (`.claude/hooks/guard-destructive.py`) blocks catastrophic
 Bash (rm -rf, git reset --hard, force-push, DB wipes) **and `rclone config create|update`
-with no `>/dev/null`, which prints live tokens to stdout on SUCCESS**. If blocked, surface
+with no `>/dev/null`, which prints live tokens to stdout on SUCCESS**, and `git worktree remove` over
+a tree holding a directory junction or symlink, which on Windows deletes the link's TARGET (#963) —
+that rule also runs on the PowerShell tool. If blocked, surface
 it rather than working around it. `test_guard_destructive.py` gates it in the same CI job.
 Deep ref `.claude/context/tools.md`.
 
