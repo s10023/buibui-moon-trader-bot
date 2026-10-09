@@ -15,7 +15,7 @@ After the user approves the batch, for each item compute the destination with
 | setup (`retrospective: false`, `rejected: false`) | — | `docs/plans/pundit-calls.jsonl` (one JSON line, schema below) |
 | setup (`retrospective: true`) | — | **drop** — reason "retrospective — call predates video"; shown in the digest and the per-video note, never a Stream C write |
 | setup (`rejected: true`) | — | **drop** — reason "rejected — speaker argued against taking it"; shown in the digest and the per-video note, never a Stream C write |
-| mechanic | — | `docs/plans/mechanics-backlog.md` (a `-` list bullet) |
+| mechanic | — | `docs/plans/mechanics-backlog.md` (a `-` list bullet ending in a `Status:` line, see SKILL.md step 8) |
 | claim | NOVEL | `docs/plans/thesis-inbox.md` (a draft `H` row) |
 | claim | ALREADY-TESTED / FROZEN-CATEGORY / NOT-FALSIFIABLE | **drop** — state "seen, verdict X", write nothing |
 

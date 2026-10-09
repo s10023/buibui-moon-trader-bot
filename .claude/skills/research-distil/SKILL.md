@@ -272,7 +272,10 @@ minting a `book://` scheme — that is bookkeeping with no consumer.
 
 Each row carries: the claim, its source citation, all four gate results verbatim,
 the pasted `distil_power.py` output, and a **Decision Log** naming the observable
-that would reverse it.
+that would reverse it. A `mechanics-backlog.md` row also ends with one indented
+`Status:` line (#977): `Status: PRICED — <the G3 verdict>`, or
+`Status: CLOSED (unreachable) — verdict: <the G3 verdict>` when G3 prices it out. Then run
+`PYTHONPATH=. poetry run python tools/mechanics_status.py --check`.
 
 A pre-registered spec in `docs/superpowers/specs/` is generated **only on
 promotion**, when the operator picks a row to run. Untested ideas do not enter the
