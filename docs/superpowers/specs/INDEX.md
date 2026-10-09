@@ -4,13 +4,13 @@
 `make docs-index-check` (and `tests/test_docs_index.py`) fails when this file
 drifts from the corpus.
 
-**70 specs on disk.** Reconcile status is **derived** — a spec counts as
+**71 specs on disk.** Reconcile status is **derived** — a spec counts as
 reconciled when an audit that names its filename also discusses reconciling, so
 the count is recomputed from disk rather than carried in prose. That is the
 counter AGENTS.md has had wrong every time it was checked.
 
-- **Reconciled (derived): 4 of 70.**
-- Referenced by no audit at all: 49.
+- **Reconciled (derived): 4 of 71.**
+- Referenced by no audit at all: 50.
 
 **Two caveats before quoting these numbers.** A *partial* reconcile is
 indistinguishable from a whole-spec one here, and this table cannot see one that
@@ -19,6 +19,7 @@ and the reconcile column as a floor.
 
 | Date | Spec | Reconciled by | Also referenced by | File |
 | --- | --- | --- | --- | --- |
+| 2026-10-09 | E850 — pre-registration for the short after a breakout on rising open interest | — | — | [2026-10-09-e850-oi-breakout-flush-preregistration.md](2026-10-09-e850-oi-breakout-flush-preregistration.md) |
 | 2026-10-08 | H13 — pre-registration for the US-open opening-range breakout | — | 2026-10-09-h13-us-open-orb-result.md | [2026-10-08-h13-us-open-orb-preregistration.md](2026-10-08-h13-us-open-orb-preregistration.md) |
 | 2026-10-08 | E841 — pre-registration for hedged violent-up continuation, out of universe | — | 2026-10-09-e841-violent-up-holdout-result.md | [2026-10-08-e841-violent-up-holdout-preregistration.md](2026-10-08-e841-violent-up-holdout-preregistration.md) |
 | 2026-09-10 | ST134 — pre-registration: trial independence and observation clustering in the sweep commit gate | — | — | [2026-09-10-st134-sweep-gate-trial-independence-preregistration.md](2026-09-10-st134-sweep-gate-trial-independence-preregistration.md) |
