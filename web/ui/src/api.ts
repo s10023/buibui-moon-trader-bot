@@ -1054,25 +1054,43 @@ export const getBrief = (params?: {
 
 // ── SSE helper ────────────────────────────────────────────────────────────────
 
-// EventSource cannot send Authorization headers — token passed as ?token= query param.
+// EventSource cannot send Authorization headers, and a ?token= query param would
+// land in URLs and logs. So the Bearer token is first traded for an HttpOnly
+// cookie (POST /api/stream/session), which the same-origin EventSource sends.
 export function createSSEStream<T>(
   path: string,
   onMessage: (data: T) => void,
   onError: (err: Event) => void,
   onOpen?: () => void
 ): () => void {
-  const url = TOKEN ? `${path}?token=${encodeURIComponent(TOKEN)}` : path;
-  const es = new EventSource(url);
-  es.onopen = () => onOpen?.();
-  es.onmessage = (e: MessageEvent) => {
-    try {
-      onMessage(JSON.parse(e.data as string) as T);
-    } catch {
-      /* ignore malformed frames */
-    }
+  let es: EventSource | null = null;
+  let closed = false;
+  // A failed session call still opens the stream: the server then answers 401
+  // and the EventSource reports it through onError like any other failure.
+  const session: Promise<unknown> = TOKEN
+    ? fetch("/api/stream/session", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}` },
+      }).catch(() => undefined)
+    : Promise.resolve();
+  void session.then(() => {
+    if (closed) return;
+    const source = new EventSource(path);
+    source.onopen = () => onOpen?.();
+    source.onmessage = (e: MessageEvent) => {
+      try {
+        onMessage(JSON.parse(e.data as string) as T);
+      } catch {
+        /* ignore malformed frames */
+      }
+    };
+    source.onerror = (err) => {
+      onError(err);
+    };
+    es = source;
+  });
+  return () => {
+    closed = true;
+    es?.close();
   };
-  es.onerror = (err) => {
-    onError(err);
-  };
-  return () => es.close();
 }

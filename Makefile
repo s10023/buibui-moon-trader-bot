@@ -5,6 +5,10 @@ INTERVAL ?= 4h
 DAYS ?= 90
 SAVE ?=
 PORT ?= 8000
+# Loopback by default: the dashboard serves live positions and account data, so
+# exposing it beyond this machine is an explicit opt-in (WEB_HOST=0.0.0.0). Not
+# named HOST, which zsh and some environments already set to the machine name.
+WEB_HOST ?= 127.0.0.1
 DEV_PORT ?= 5173
 # Makefile — Lint Markdown and Python
 
@@ -642,7 +646,7 @@ buibui-signal-test:
 
 buibui-web:
 	@echo "Starting web backend..."
-	poetry run python buibui.py web --host 0.0.0.0 --port $(PORT) \
+	poetry run python buibui.py web --host $(WEB_HOST) --port $(PORT) \
 		$(if $(CONFIG),--config $(CONFIG),)
 
 web-install:

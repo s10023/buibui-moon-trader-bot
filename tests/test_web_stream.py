@@ -1,7 +1,7 @@
 """Tests for the SSE stream web endpoints."""
 
 import json
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Generator
 from typing import Any
 
 import pytest
@@ -116,33 +116,103 @@ def test_stream_positions_first_event_shape(
     assert "total_risk_usd" in payload
 
 
-def test_stream_prices_missing_token_returns_401(
+# ── SSE auth (#986) ───────────────────────────────────────────────────────────
+
+_STREAMS = ["/api/stream/prices", "/api/stream/positions"]
+
+
+@pytest.fixture()
+def sse_auth(
     web_client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Stream prices without ?token= returns 401 when API_TOKEN is set."""
-    from web.api.deps import require_token_sse
+) -> Generator[TestClient]:
+    """web_client with the REAL SSE and Bearer checks and one-event streams."""
+    from web.api.deps import require_token, require_token_sse
     from web.api.main import app
 
-    monkeypatch.setenv("API_TOKEN", "test-secret")
+    monkeypatch.setattr(
+        "web.api.routers.stream._price_event_generator", _one_price_event
+    )
+    monkeypatch.setattr(
+        "web.api.routers.stream._positions_event_generator", _one_positions_event
+    )
+    monkeypatch.delenv("API_TOKEN", raising=False)
+    monkeypatch.delenv("BUIBUI_WEB_DEV_NO_AUTH", raising=False)
     app.dependency_overrides.pop(require_token_sse, None)
-    try:
-        resp = web_client.get("/api/stream/prices")
-        assert resp.status_code in (401, 403)
-    finally:
-        app.dependency_overrides[require_token_sse] = lambda: None
+    app.dependency_overrides.pop(require_token, None)
+    yield web_client
+    web_client.cookies.clear()
 
 
-def test_stream_positions_missing_token_returns_401(
-    web_client: TestClient, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("path", _STREAMS)
+def test_stream_refuses_when_api_token_unset(sse_auth: TestClient, path: str) -> None:
+    """No API_TOKEN and no dev flag must refuse, not fall open (#986)."""
+    assert sse_auth.get(path).status_code == 401
+
+
+@pytest.mark.parametrize("path", _STREAMS)
+def test_stream_dev_flag_opts_into_no_auth(
+    sse_auth: TestClient, monkeypatch: pytest.MonkeyPatch, path: str
 ) -> None:
-    """Stream positions without ?token= returns 401 when API_TOKEN is set."""
-    from web.api.deps import require_token_sse
-    from web.api.main import app
+    monkeypatch.setenv("BUIBUI_WEB_DEV_NO_AUTH", "1")
+    assert sse_auth.get(path).status_code == 200
 
+
+def test_stream_dev_flag_needs_exact_opt_in(
+    sse_auth: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BUIBUI_WEB_DEV_NO_AUTH", "0")
+    assert sse_auth.get(_STREAMS[0]).status_code == 401
+
+
+@pytest.mark.parametrize("path", _STREAMS)
+def test_stream_missing_token_returns_401(
+    sse_auth: TestClient, monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
     monkeypatch.setenv("API_TOKEN", "test-secret")
-    app.dependency_overrides.pop(require_token_sse, None)
-    try:
-        resp = web_client.get("/api/stream/positions")
-        assert resp.status_code in (401, 403)
-    finally:
-        app.dependency_overrides[require_token_sse] = lambda: None
+    assert sse_auth.get(path).status_code == 401
+
+
+@pytest.mark.parametrize("path", _STREAMS)
+def test_stream_ignores_query_token(
+    sse_auth: TestClient, monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    """A correct ?token= must NOT authenticate: it lands in URLs and logs."""
+    monkeypatch.setenv("API_TOKEN", "test-secret")
+    assert sse_auth.get(f"{path}?token=test-secret").status_code == 401
+
+
+@pytest.mark.parametrize("path", _STREAMS)
+def test_stream_accepts_bearer_header(
+    sse_auth: TestClient, monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    monkeypatch.setenv("API_TOKEN", "test-secret")
+    ok = sse_auth.get(path, headers={"Authorization": "Bearer test-secret"})
+    bad = sse_auth.get(path, headers={"Authorization": "Bearer wrong"})
+    assert (ok.status_code, bad.status_code) == (200, 401)
+
+
+@pytest.mark.parametrize("path", _STREAMS)
+def test_stream_accepts_cookie(
+    sse_auth: TestClient, monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    monkeypatch.setenv("API_TOKEN", "test-secret")
+    sse_auth.cookies.set("buibui_sse", "wrong")
+    assert sse_auth.get(path).status_code == 401
+    sse_auth.cookies.set("buibui_sse", "test-secret")
+    assert sse_auth.get(path).status_code == 200
+
+
+def test_stream_session_sets_scoped_httponly_cookie(
+    sse_auth: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The UI's route: trade the Bearer token for a cookie, then stream with it."""
+    monkeypatch.setenv("API_TOKEN", "test-secret")
+    assert sse_auth.post("/api/stream/session").status_code in (401, 403)
+    resp = sse_auth.post(
+        "/api/stream/session", headers={"Authorization": "Bearer test-secret"}
+    )
+    assert resp.status_code == 204
+    set_cookie = resp.headers["set-cookie"].lower()
+    for attr in ("buibui_sse=", "httponly", "samesite=strict", "path=/api/stream"):
+        assert attr in set_cookie
+    assert sse_auth.get(_STREAMS[0]).status_code == 200
