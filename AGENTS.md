@@ -1410,7 +1410,7 @@ Ported from the wifey fork 2026-08-19, where both halves of the pair are gated i
 (sweep → behaviour gate → changed artifacts → doc walk → surface checks → MEMORY.md → SoT
 reconcile → commit and push) are commit-producing and run **before** `gh pr create`, so the
 doc fixes ship in the initial push. Steps 8–11 (PR body, pre-merge check, handoff, re-verify) need the PR to
-exist and run **after**; they produce no commits. Step 10b writes a gitignored file and is
+exist and run **after**; they produce no commits. Step 10 writes a gitignored file and is
 free either way.
 
 Invoking it is neither optional nor conditional — the skill's own Step 1 behaviour gate
