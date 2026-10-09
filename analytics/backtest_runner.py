@@ -722,8 +722,12 @@ def _collect_sweep_results(
             atr_sl_multiplier=eff_atr_sl,
             atr_sl_floor=cfg.atr_sl_floor,
             volume_suppress=cfg.effective_volume_suppress(strategy),
-            volume_suppress_long=cfg.effective_volume_suppress_long(strategy),
-            volume_suppress_short=cfg.effective_volume_suppress_short(strategy),
+            volume_suppress_long=cfg.effective_volume_suppress_long(
+                strategy, timeframe
+            ),
+            volume_suppress_short=cfg.effective_volume_suppress_short(
+                strategy, timeframe
+            ),
             live_parity=cfg.live_parity,
             bias_cfg=cfg.bias,
             regime_series=(
@@ -764,8 +768,12 @@ def _collect_sweep_results(
                 min_sl_pct=cfg.min_sl_pct,
                 atr_sl_multiplier=eff_atr_sl,
                 atr_sl_floor=cfg.atr_sl_floor,
-                volume_suppress_long=cfg.effective_volume_suppress_long(strategy),
-                volume_suppress_short=cfg.effective_volume_suppress_short(strategy),
+                volume_suppress_long=cfg.effective_volume_suppress_long(
+                    strategy, timeframe
+                ),
+                volume_suppress_short=cfg.effective_volume_suppress_short(
+                    strategy, timeframe
+                ),
                 live_parity=cfg.live_parity,
                 # ST104 P1: joins the run_id and is stored on the row (see
                 # `_backtest_run_id` / `upsert_backtest_run`), so a retuned
@@ -876,9 +884,11 @@ def run_backtest_sweep(
                         ),
                         atr_sl_floor=cfg.atr_sl_floor,
                         volume_suppress=cfg.effective_volume_suppress(strat),
-                        volume_suppress_long=cfg.effective_volume_suppress_long(strat),
+                        volume_suppress_long=cfg.effective_volume_suppress_long(
+                            strat, tf
+                        ),
                         volume_suppress_short=cfg.effective_volume_suppress_short(
-                            strat
+                            strat, tf
                         ),
                         live_parity=cfg.live_parity,
                         bias_cfg=cfg.bias,
@@ -928,9 +938,11 @@ def run_backtest_sweep(
                         atr_sl_multiplier=atr_mult,
                         atr_sl_floor=cfg.atr_sl_floor,
                         volume_suppress=cfg.effective_volume_suppress(strat),
-                        volume_suppress_long=cfg.effective_volume_suppress_long(strat),
+                        volume_suppress_long=cfg.effective_volume_suppress_long(
+                            strat, tf
+                        ),
                         volume_suppress_short=cfg.effective_volume_suppress_short(
-                            strat
+                            strat, tf
                         ),
                         live_parity=cfg.live_parity,
                         bias_cfg=cfg.bias,

@@ -43,6 +43,7 @@ def _final(verdict: str, **card_overrides: Any) -> FinalCard:
         risk_frac=0.0025 if verdict == "TRADE" else None,
         capital_used=10_000.0 if verdict == "TRADE" else None,
         capital_source="config" if verdict == "TRADE" else None,
+        sizing_regime="measurement" if verdict == "TRADE" else None,
         rr_tp1=1.5 if verdict != "NO_TRADE" else None,
         rr_tp1_net=1.43 if verdict == "TRADE" else None,
         warnings=["open risk approximated as one r_base per open position"],
@@ -133,10 +134,22 @@ def test_render_states_the_capital_behind_the_risk() -> None:
 
 
 def test_render_omits_the_capital_note_when_absent() -> None:
-    final = dataclasses.replace(_final("TRADE"), capital_used=None, capital_source=None)
+    final = dataclasses.replace(
+        _final("TRADE"), capital_used=None, capital_source=None, sizing_regime=None
+    )
     out = render_card(final)
     assert "% of capital" not in out
     assert "risk $25.00 (0.25%)" in out
+
+
+def test_render_names_the_sizing_regime_beside_the_capital() -> None:
+    """#980: the #915 regime is read beside the basis it sized against."""
+    final = dataclasses.replace(
+        _final("TRADE"), capital_used=1201.33, capital_source="rebase"
+    )
+    assert "of 1,201.33 rebase, measurement size" in render_card(final)
+    unlocked = dataclasses.replace(final, sizing_regime="unlocked")
+    assert "rebase, unlocked size" in render_card(unlocked)
 
 
 class TestNetRRIsVisible:

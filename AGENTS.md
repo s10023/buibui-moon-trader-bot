@@ -178,7 +178,9 @@ play, land that reformat once up front.
 `buibui.py` is the single CLI entry point.
 
 - `buibui monitor price | position` — live price / position monitor
-- `buibui analytics backfill | sync` — OHLCV ingestion. `--universe` (mutually exclusive
+- `buibui analytics backfill | sync | oi-archive` — OHLCV ingestion, plus `oi-archive` (#936):
+  open-interest history from the `data.binance.vision` metrics archive into additive
+  source-keyed tables (`make oi-archive-backfill`; deep ref `.claude/context/analytics.md`). `--universe` (mutually exclusive
   with `--symbols`) reads the committed 25-perp research set from `config/universe.toml`;
   `make universe-backfill` wraps the deep 1h/4h/1d/1w run since 2019
 - `buibui backtest` — run/save backtests (sweep, combo, cross-TF modes)
@@ -303,14 +305,22 @@ the card's own `generated_at_ms`). Wrapped by
   gross always. `round_trip_drag_r` (`portfolio/sizing.py`) is the ONE spelling —
   `Trade.pnl_r` is its origin and deliberately does NOT delegate, because it uses the
   split form, which is not bit-identical in floating point and generated every golden.
-- **Capital.** `portfolio.sizing.resolve_capital` returns live account equity when
-  available and the configured `[portfolio] capital` otherwise. Every card records
-  `capital_used` / `capital_source`, because a bare `risk_frac` is uninterpretable after the
-  fact once capital is live. The same resolved capital scales `daily_r`, so the daily
-  circuit breaker is measured in real R: against the old hardcoded constant a true −2R day
-  passed the gate as **−0.24R**. At ~$1,200 equity a BTCUSDT stop wider than roughly
-  2.7% VETOes for a sub-lot risk budget — the same capital wall the XS sleeve hits at
-  ~$1,000 minimum.
+- **Capital and R follow the #915 rule (#980).** `portfolio.sizing.resolve_bet_unit` gives
+  R = basis × f: the basis is `[bet_sizing] basis_usd` + `rebased_at`, equity at the last
+  SCHEDULED re-base, so R holds between re-bases instead of shrinking after each loss.
+  Unset, it falls back to `resolve_capital` (live equity, else `[portfolio] capital`) with
+  a warning that R is floating. f is the 1% measurement size until `[bet_sizing.unlock]`
+  names the evidence, then min(1/k, half-Kelly) from #914's streak table. A
+  BTC/ETH/SOL card is ONE leg of a cluster entry and takes R/3 whether or not the
+  siblings trade; a sub-lot leg VETOes as a skip and its share is never reallocated.
+  The same R scales `daily_r`, and the breaker fires at −1R. A new bet VETOes when open
+  risk — one R per open cluster entry, never per leg, plus this bet — exceeds a ceiling
+  in bet R: `[bet_sizing] open_risk_max_r`, else `[portfolio] r_open_max / 1%` (2R).
+  `r_open_max` stays a fraction of equity because the P1 replay still reads it that way;
+  only the card converts it. The cluster headroom check and the high-vol halving are
+  gone from the card path. Every card records
+  `capital_used` / `capital_source` / `sizing_regime` (`measurement` | `unlocked`),
+  because a bare `risk_frac` is uninterpretable without the basis and regime behind it.
 - **`--horizon intraday|swing`** sets the SCORING window the pundit-calls row is resolved
   against (48h vs 30d). It is stamped on `FinalCard`, so both ledgers read one value and
   cannot disagree. `swing` also drops 1h from the recent-fires scan and re-anchors the
@@ -1351,11 +1361,13 @@ blocked. Never assume the flip happened because you printed the command.
   never as safety of the check, since `security-scan` (Trivy) in that slot consumes minutes and
   dies.
 - **What makes a SHARED window safe is concurrency, not the rule.** `cancel-in-progress` is
-  `${{ github.event_name == 'pull_request' }}` — false on push — so main runs QUEUE and a
-  second merge's CI cannot start until the first finishes, chained job and all. The group is
-  keyed on `${{ github.workflow }}`, so that protection is **per workflow** too, which is the
-  same scope gap as the waiter above. ⚠ **A repo without this has none of it — check the
-  wifey fork rather than assuming it inherits.**
+  `true` on push too (since 2026-10-09; `signal-watch` excepted), so a newer merge CANCELS the
+  in-flight main run and only the newest SHA's run finishes — merges are squashed, so main is
+  linear and that run covers every earlier commit. Gate the flip-back on the NEWEST merge SHA;
+  a cancelled run on an older SHA is superseded, not red (`wait_ci.py` reports it so). The
+  group is keyed on `${{ github.workflow }}`, so that protection is **per workflow** too, which
+  is the same scope gap as the waiter above. ⚠ **A repo without this has none of it — check
+  the wifey fork rather than assuming it inherits.**
 - **A merge-run failure at ~3s with `steps=0` and `visibility=PRIVATE` is billing.** Verify
   duration, visibility and step count, then merge. Never debug it. ⚠ **`wait_ci.py` reports
   `steps` as EXECUTED/DECLARED, and only the executed half means anything to a reader.** A

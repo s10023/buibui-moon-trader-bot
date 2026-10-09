@@ -68,9 +68,10 @@ def _number_rows(final: FinalCard) -> list[str]:
             f"{'SIZE':<{_LABEL}}{final.size_units} u  ${final.notional_usd:,.2f}"
         )
     if final.risk_usd is not None:
+        regime = f"  {final.sizing_regime}" if final.sizing_regime else ""
         rows.append(
             f"{'RISK':<{_LABEL}}${final.risk_usd:,.2f}  "
-            f"{(final.risk_frac or 0.0) * 100:.2f}%"
+            f"{(final.risk_frac or 0.0) * 100:.2f}%{regime}"
         )
     return rows
 

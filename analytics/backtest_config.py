@@ -13,6 +13,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from analytics.backtest.live_parity_config import LiveParityConfig
+from analytics.volume_suppress import (
+    resolve_volume_suppress,
+    resolve_volume_suppress_directional,
+)
 
 if TYPE_CHECKING:
     from analytics.signal_config import BiasConfig
@@ -119,6 +123,12 @@ class StrategyOverride:
     # Directional volume suppress — overrides volume_suppress for that direction when set.
     volume_suppress_long: bool | None = None
     volume_suppress_short: bool | None = None
+    # Per-tf directional volume suppress (#970 — precedence: per-tf-direction >
+    # per-direction > strategy-wide > global). Keys are timeframe strings; values
+    # are bool. Mirrors signal_config.StrategyOverride so the same TOML tables the
+    # live scanner honours reach the backtest.
+    volume_suppress_long_per_tf: dict[str, bool] = field(default_factory=dict)
+    volume_suppress_short_per_tf: dict[str, bool] = field(default_factory=dict)
     # Optional direction-split TP multiples. Falls back to tp_r when None.
     tp_r_long: float | None = None
     tp_r_short: float | None = None
@@ -338,24 +348,31 @@ class BacktestSweepConfig:
         return override.adr_exempt
 
     def effective_volume_suppress(self, strategy: str) -> bool:
-        override = self.strategy_params.get(strategy)
-        if override is not None and override.volume_suppress is not None:
-            return override.volume_suppress
-        return self.volume_suppress
+        return resolve_volume_suppress(
+            self.strategy_params, strategy, self.volume_suppress
+        )
 
-    def effective_volume_suppress_long(self, strategy: str) -> bool | None:
-        """Return per-strategy volume_suppress_long override, or None (fall back to symmetric)."""
-        override = self.strategy_params.get(strategy)
-        if override is not None:
-            return override.volume_suppress_long
-        return None
+    def effective_volume_suppress_long(
+        self, strategy: str, tf: str | None = None
+    ) -> bool | None:
+        """Resolve directional volume_suppress for `long`, or None (fall back to symmetric).
 
-    def effective_volume_suppress_short(self, strategy: str) -> bool | None:
-        """Return per-strategy volume_suppress_short override, or None (fall back to symmetric)."""
-        override = self.strategy_params.get(strategy)
-        if override is not None:
-            return override.volume_suppress_short
-        return None
+        Precedence: per-tf-direction > per-direction. Pass ``tf`` or the
+        per-timeframe table is skipped and the run diverges from live (#970).
+        The rule itself lives in ``analytics.volume_suppress``, shared with the
+        live scanner.
+        """
+        return resolve_volume_suppress_directional(
+            self.strategy_params, strategy, "long", tf
+        )
+
+    def effective_volume_suppress_short(
+        self, strategy: str, tf: str | None = None
+    ) -> bool | None:
+        """Resolve directional volume_suppress for `short` (see _long variant)."""
+        return resolve_volume_suppress_directional(
+            self.strategy_params, strategy, "short", tf
+        )
 
     def effective_strategy_timeframes(
         self, strategy: str, direction: str | None = None
@@ -495,6 +512,8 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
 
         ael_per_tf = _parse_adr_per_tf_bool("adr_exempt_long_per_tf")
         aes_per_tf = _parse_adr_per_tf_bool("adr_exempt_short_per_tf")
+        vsl_per_tf = _parse_adr_per_tf_bool("volume_suppress_long_per_tf")
+        vss_per_tf = _parse_adr_per_tf_bool("volume_suppress_short_per_tf")
         strategy_params[str(strat_name)] = StrategyOverride(
             tp_r=float(tp_r_val) if tp_r_val is not None else None,
             sl_pct=float(sl_pct_val) if sl_pct_val is not None else None,
@@ -515,6 +534,8 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
             volume_suppress=bool(raw_vs) if raw_vs is not None else None,
             volume_suppress_long=bool(raw_vsl) if raw_vsl is not None else None,
             volume_suppress_short=bool(raw_vss) if raw_vss is not None else None,
+            volume_suppress_long_per_tf=vsl_per_tf,
+            volume_suppress_short_per_tf=vss_per_tf,
             tp_r_long=float(raw_tp_r_long) if raw_tp_r_long is not None else None,
             tp_r_short=float(raw_tp_r_short) if raw_tp_r_short is not None else None,
         )

@@ -10,11 +10,14 @@ permissions:
   contents: read
   pull-requests: read
 
-# Supersede in-flight PR runs; never cancel on main — a cancelled main run
-# destroys the record of whether main is green.
+# A newer push supersedes an in-flight run, on PRs and on main alike. Merges
+# are squashed, so main is linear and its newest run covers every earlier
+# commit; what a cancel costs is a per-commit green mark on the superseded
+# SHAs. What it buys is a shorter visibility-flip window: the flip-back waits
+# on main CI, which no longer finishes a run nobody will read first.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 jobs:
   markdownlint:

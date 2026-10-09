@@ -20,6 +20,7 @@ import pandas as pd
 from analytics.backtest.fills import CrossedWhen, gap_fill_price
 from analytics.backtest.gates import _is_low_volume, _is_volume_spike
 from analytics.backtest.live_parity_config import LiveParityConfig
+from analytics.volume_suppress import pick_volume_suppress
 
 if TYPE_CHECKING:
     from analytics.signal.types import SignalEvent
@@ -985,12 +986,10 @@ def run_backtest(
         # Volume suppression: skip low-volume signal candles when enabled.
         # Directional params (volume_suppress_long / volume_suppress_short) take
         # precedence over the symmetric volume_suppress for their respective direction.
-        _suppress = (
-            volume_suppress_long
-            if direction == "long" and volume_suppress_long is not None
-            else volume_suppress_short
-            if direction == "short" and volume_suppress_short is not None
-            else volume_suppress
+        # The caller resolves the per-timeframe tables (``cfg.effective_volume_suppress_*``
+        # with ``tf``), exactly as the live scanner does; the pick is shared (#970).
+        _suppress = pick_volume_suppress(
+            direction, volume_suppress, volume_suppress_long, volume_suppress_short
         )
         if _suppress and is_low_vol:
             continue

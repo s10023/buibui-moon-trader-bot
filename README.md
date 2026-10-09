@@ -44,7 +44,7 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
   mmt_SOLUSDT.png                        # no timestamp at all — capture time = file mtime
   ```
 
-- `buibui card SYMBOL` — AI trade card (F2): feeds the brief panel, pundit board, XS target, recent fires, and live account into an LLM (`claude -p`, subscription auth) with a fixed rubric, then deterministically sizes and rule-checks the result in code (VETOED on violation). Sizing uses **live account equity** when it is available, falling back to the configured `[portfolio] capital`; each card records which it used. Because real equity is far below the old $10k default, the sub-lot veto is common — a BTCUSDT stop wider than roughly 2.7% at ~$1,200 equity leaves a risk budget under one LOT_SIZE step and is rejected. Advisory only — `card-place` (below) is the one deliberate exception that routes orders. Every call logs to `docs/plans/ai-cards.jsonl`. `--dry-run` prints the state + prompt with no LLM call. `--telegram` additionally pushes the rendered card to Telegram (opt-in per run; every verdict, VETOED included). `--horizon intraday|swing` sets the horizon the card reasons at and the scoring window its ledger row is resolved against (48h vs 30d). `make buibui-card SYMBOL=BTCUSDT [DIRECTION=] [HORIZON=] [AS_OF=] [DRY=1] [TG=1] [CONFIG=]`.
+- `buibui card SYMBOL` — AI trade card (F2): feeds the brief panel, pundit board, XS target, recent fires, and live account into an LLM (`claude -p`, subscription auth) with a fixed rubric, then deterministically sizes and rule-checks the result in code (VETOED on violation). Sizing follows the #915 rule: R = the `[bet_sizing] basis_usd` set at the last scheduled re-base × f, where f is the 1% measurement size until `[bet_sizing.unlock]` names the evidence for a larger one. Without a basis it falls back to live account equity, else `[portfolio] capital`, with a warning. A BTC/ETH/SOL card is one leg of a cluster entry and takes R/3; a leg under one LOT_SIZE step is skipped (VETOED) rather than sized up, which happens most on BTC at small capital. The daily circuit breaker fires at −1R, and a new bet is vetoed once open risk (one R per open cluster entry, plus this bet) would pass 2R (`r_open_max` converted at the 1% size; `[bet_sizing] open_risk_max_r` overrides it). Each card records its basis, its source and its sizing regime (`measurement` or `unlocked`). Advisory only — `card-place` (below) is the one deliberate exception that routes orders. Every call logs to `docs/plans/ai-cards.jsonl`. `--dry-run` prints the state + prompt with no LLM call. `--telegram` additionally pushes the rendered card to Telegram (opt-in per run; every verdict, VETOED included). `--horizon intraday|swing` sets the horizon the card reasons at and the scoring window its ledger row is resolved against (48h vs 30d). `make buibui-card SYMBOL=BTCUSDT [DIRECTION=] [HORIZON=] [AS_OF=] [DRY=1] [TG=1] [CONFIG=]`.
 
 - `buibui card-place` / `buibui card-orders [--refresh]` — the one deliberate exception to
   the card's advisory-only default: a picklist places selected unexpired TRADE cards as
@@ -123,7 +123,7 @@ buibui-moon-trader-bot/
 ├── card/                # F2 AI trade card
 ├── portfolio/           # P1 paper-portfolio sizing + replay
 ├── trade/               # Execution layer: XS live wiring, routing, risk overlay
-├── monitor/             # Live price / position monitors
+├── monitor/             # Live price / position monitors + the liquidation recorder
 ├── web/                 # FastAPI backend (api/) + Svelte 5 UI (ui/)
 ├── tools/               # One-shot analysis + audit scripts
 ├── utils/               # Shared clients, Telegram, config validation
@@ -511,6 +511,30 @@ Options:
 - Requires backfill to have been run first for each symbol/timeframe
 
 Data is stored in `analytics.db` (auto-created in CWD).
+
+**Open-interest archive — history before the REST window (#936):**
+
+```bash
+poetry run python buibui.py analytics oi-archive --universe          # or --symbols BTCUSDT ...
+make oi-archive-backfill DB=path/to/copy.db REPORT=1                  # coverage table only
+```
+
+Loads Binance's public `data.binance.vision` `futures/um/daily/metrics` dump (keyless,
+5-minute grain; BTC from 2020-09-01) into three **additive** tables, so the live
+`open_interest` table and its key are untouched and no migration is needed:
+`open_interest_archive` (hourly, `source` in the key), `open_interest_archive_5m`
+(the raw 5-minute rows incl. the taker ratio; opt-in with `--with-5m`, about 340 MB for the universe against 28 MB hourly) and
+`open_interest_archive_days` (a per-day ledger of loaded / missing days that makes a
+re-run skip finished days). **Read rule:** `get_open_interest_merged(conn, symbol, start,
+end)` returns REST rows first and archive rows only at hours REST lacks, each row labelled
+with its `source`; nothing is blended. **Hourly resample:** the row stamped hour `T` is the
+last 5-minute snapshot at or before `T - 5 min` (measured: REST's value at `T` equals the
+archive row labelled `T - 5 min` to float precision), at most 10 minutes older than that and
+from the same UTC day file, else no row; the taker ratio is a 5-minute flow and stays out
+of the hourly table. A 404 day
+is recorded as a gap; zips are cached under gitignored `.cache/oi-archive/`. Options:
+`--since/--until`, `--db`, `--workers` (default 4), `--with-5m`, `--force`,
+`--retry-missing`, `--report-only`. Exits 1 if any day failed for a reason other than 404.
 
 **`analytics.db` is gitignored and single-copy — back it up.** It holds the live
 outcome ledger, which is *not* reconstructible: exchanges do not re-serve historical
@@ -1261,6 +1285,24 @@ make buibui-signal-test CONFIG=config/signal_watch.toml STRATEGY=marubozu TIMEFR
 
 > **Note:** `smt_divergence` is supported — the secondary symbol is resolved automatically from `coins.json` (`smt_secondary` field). No extra flag needed.
 
+### Liquidation Recorder — Forward Binance Liquidations
+
+Binance serves no liquidation history, so `monitor/liq_recorder.py` records the
+`!forceOrder@arr` stream forward (Issue #984): every raw frame, plus connect / disconnect /
+reconnect events and a 60s heartbeat, goes to `data/liquidations/<UTC-day>.jsonl` (gzipped
+when the day rotates). It never touches `analytics.db`.
+
+```bash
+python monitor/liq_recorder.py                 # run (Task Scheduler runs this at startup)
+python monitor/liq_recorder.py --status        # last-heartbeat age + gap minutes, exit 1 if unhealthy
+python monitor/liq_recorder.py --stop          # clean stop (Stop-ScheduledTask is a hard kill)
+```
+
+The stream is a **sample by construction**: at most one liquidation per symbol per 1000ms.
+A *gap* is a window with no heartbeat for over 2 minutes or a down connection, never a quiet
+market. `analytics.liquidations.load_orders()` returns the orders with an `in_gap` flag;
+`daily_check_line()` is the tier-1 line. Details: `data/liquidations/README.md`.
+
 ### Web API — FastAPI Backend
 
 A JSON REST API and SSE streaming backend for the Phase 5 Svelte frontend (or any HTTP client).
@@ -1402,6 +1444,7 @@ make buibui-analytics-backfill              # Backfill from 2023-01-01 (default)
 make buibui-analytics-backfill SINCE=2024-01-01   # Backfill from custom date
 make buibui-analytics-sync                  # Incremental sync
 make universe-backfill                      # Deep 25-perp universe (1h/4h/1d/1w since 2019)
+make oi-archive-backfill                    # Open-interest archive for the universe (#936)
 ```
 
 **Backtest:**

@@ -43,6 +43,7 @@ def _final(verdict: str = "TRADE", horizon: str = "intraday") -> FinalCard:
         risk_frac=0.0025,
         capital_used=10_000.0,
         capital_source="config",
+        sizing_regime="measurement",
         rr_tp1=1.5,
         rr_tp1_net=1.43,
         warnings=[],

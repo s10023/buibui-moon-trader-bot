@@ -44,6 +44,13 @@ from analytics.store.market_data import (
     upsert_open_interest,
     upsert_symbol_lifecycle,
 )
+from analytics.store.oi_archive import (
+    get_oi_archive_day_status,
+    get_open_interest_merged,
+    upsert_oi_archive_5m,
+    upsert_oi_archive_days,
+    upsert_oi_archive_hourly,
+)
 from analytics.store.schema import init_schema
 from analytics.store.signals import (
     _OUTCOME_COLUMNS,
@@ -71,8 +78,10 @@ __all__ = [
     "get_directional_confidence_ratings",
     "get_funding_rates",
     "get_latest_open_time",
+    "get_oi_archive_day_status",
     "get_ohlcv",
     "get_open_interest",
+    "get_open_interest_merged",
     "get_signals_history",
     "get_stats_cache",
     "get_symbol_lifecycle",
@@ -89,6 +98,9 @@ __all__ = [
     "upsert_confidence_ratings",
     "upsert_cross_tf_combo_run",
     "upsert_funding_rates",
+    "upsert_oi_archive_5m",
+    "upsert_oi_archive_days",
+    "upsert_oi_archive_hourly",
     "upsert_ohlcv",
     "upsert_open_interest",
     "upsert_signal_outcome",
