@@ -103,6 +103,14 @@ def _backtest_run_id(
     value. Every argument here changes what the engine produces, so **any new
     engine knob must be added to this key in the same PR that adds it.**
 
+    ``volume_suppress_long`` / ``volume_suppress_short`` are the per-(strategy,
+    timeframe) values AFTER the per-timeframe tables are resolved (#970), so a
+    ``*_per_tf`` override reaches this key through them. A directional ``False``
+    under a strategy-wide ``volume_suppress=True`` is a different book (that
+    direction trades unsuppressed) that a bare "absent" suffix cannot name, so it
+    gets an explicit ``:off`` suffix; every other combination keeps its
+    historical key byte-for-byte.
+
     ``detector_params`` (ST104 P1) namespaces a detector-level retune (e.g.
     eqh_eql's ``lookback``/``tolerance_pct``/``swing_n``) so it cannot collide
     with the default-param row for the same symbol/tf/strategy/day_filter.
@@ -124,8 +132,12 @@ def _backtest_run_id(
         key += f"|tp_short:{tp_r_short}"
     if volume_suppress_long:
         key += "|vol_sup_l"
+    elif volume_suppress and volume_suppress_long is False:
+        key += "|vol_sup_l:off"
     if volume_suppress_short:
         key += "|vol_sup_s"
+    elif volume_suppress and volume_suppress_short is False:
+        key += "|vol_sup_s:off"
     if adr_exempt:
         key += "|adr_exempt"
     if atr_sl_floor:

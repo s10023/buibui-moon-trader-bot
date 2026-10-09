@@ -72,6 +72,7 @@ from analytics.signal_config import (
     _day_filter_to_weekdays,
 )
 from analytics.strategies import STRATEGY_REGISTRY, compute_htf_ema_slope
+from analytics.volume_suppress import pick_volume_suppress
 from analytics.workers import pool_size
 from signals.cooldown_store import CooldownStore
 from signals.registry import SIGNAL_REGISTRY
@@ -839,14 +840,13 @@ def run_scan_cycle(
                 _suppress_short = _resolve_volume_suppress_short(
                     strategy_params, _e.strategy, tf
                 )
-                _suppress = (
-                    _suppress_long
-                    if _dir == "long" and _suppress_long is not None
-                    else _suppress_short
-                    if _dir == "short" and _suppress_short is not None
-                    else _resolve_volume_suppress(
+                _suppress = pick_volume_suppress(
+                    _dir,
+                    _resolve_volume_suppress(
                         strategy_params, _e.strategy, backtest_cfg.volume_suppress
-                    )
+                    ),
+                    _suppress_long,
+                    _suppress_short,
                 )
                 if _suppress and _is_low_volume(ohlcv_df, _idx):
                     logger.info(

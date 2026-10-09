@@ -4,6 +4,10 @@ Resolution order: symbol+TF → symbol → TF-specific → directional → strat
 """
 
 from analytics.signal_config import StrategyOverride
+from analytics.volume_suppress import (
+    resolve_volume_suppress,
+    resolve_volume_suppress_directional,
+)
 
 
 def _resolve_tp_r(
@@ -120,11 +124,8 @@ def _resolve_volume_suppress(
     strategy: str,
     global_suppress: bool,
 ) -> bool:
-    if strategy_params:
-        override = strategy_params.get(strategy)
-        if override is not None and override.volume_suppress is not None:
-            return override.volume_suppress
-    return global_suppress
+    """Strategy-wide flag; the precedence lives in ``analytics.volume_suppress``."""
+    return resolve_volume_suppress(strategy_params, strategy, global_suppress)
 
 
 def _resolve_volume_suppress_long(
@@ -136,15 +137,10 @@ def _resolve_volume_suppress_long(
 
     Precedence (Bucket C PR — Q-BC-1): per-tf-direction > per-direction.
     Returns None when no directional override is set (caller falls back
-    to strategy-wide volume_suppress).
+    to strategy-wide volume_suppress). Shared with the backtest through
+    ``analytics.volume_suppress`` (#970).
     """
-    if strategy_params:
-        override = strategy_params.get(strategy)
-        if override is not None:
-            if tf is not None and tf in override.volume_suppress_long_per_tf:
-                return override.volume_suppress_long_per_tf[tf]
-            return override.volume_suppress_long
-    return None
+    return resolve_volume_suppress_directional(strategy_params, strategy, "long", tf)
 
 
 def _resolve_volume_suppress_short(
@@ -152,10 +148,4 @@ def _resolve_volume_suppress_short(
     strategy: str,
     tf: str | None = None,
 ) -> bool | None:
-    if strategy_params:
-        override = strategy_params.get(strategy)
-        if override is not None:
-            if tf is not None and tf in override.volume_suppress_short_per_tf:
-                return override.volume_suppress_short_per_tf[tf]
-            return override.volume_suppress_short
-    return None
+    return resolve_volume_suppress_directional(strategy_params, strategy, "short", tf)

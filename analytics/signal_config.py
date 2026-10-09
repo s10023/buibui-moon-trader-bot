@@ -12,6 +12,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from analytics.volume_suppress import (
+    resolve_volume_suppress,
+    resolve_volume_suppress_directional,
+)
+
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """Recursively merge override into base.
@@ -508,10 +513,9 @@ class SignalWatchConfig:
         return self.sl_pct
 
     def effective_volume_suppress(self, strategy: str) -> bool:
-        override = self.strategy_params.get(strategy)
-        if override is not None and override.volume_suppress is not None:
-            return override.volume_suppress
-        return self.backtest.volume_suppress
+        return resolve_volume_suppress(
+            self.strategy_params, strategy, self.backtest.volume_suppress
+        )
 
     def effective_volume_suppress_long(
         self, strategy: str, tf: str | None = None
@@ -520,24 +524,19 @@ class SignalWatchConfig:
 
         Precedence: per-tf-direction > per-direction. Returns None when no
         directional override is set (caller falls back to volume_suppress).
+        The rule itself lives in ``analytics.volume_suppress``.
         """
-        override = self.strategy_params.get(strategy)
-        if override is not None:
-            if tf is not None and tf in override.volume_suppress_long_per_tf:
-                return override.volume_suppress_long_per_tf[tf]
-            return override.volume_suppress_long
-        return None
+        return resolve_volume_suppress_directional(
+            self.strategy_params, strategy, "long", tf
+        )
 
     def effective_volume_suppress_short(
         self, strategy: str, tf: str | None = None
     ) -> bool | None:
         """Resolve directional volume_suppress for `short` (see _long variant)."""
-        override = self.strategy_params.get(strategy)
-        if override is not None:
-            if tf is not None and tf in override.volume_suppress_short_per_tf:
-                return override.volume_suppress_short_per_tf[tf]
-            return override.volume_suppress_short
-        return None
+        return resolve_volume_suppress_directional(
+            self.strategy_params, strategy, "short", tf
+        )
 
     def effective_adr_exempt(
         self,
