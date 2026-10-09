@@ -7,6 +7,8 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
+from portfolio.sizing import DAILY_LOSS_CAP_R
+
 CARD_HORIZONS: tuple[str, ...] = ("intraday", "swing")
 """Card horizons — a strict subset of ``VALID_HORIZONS``.
 
@@ -62,7 +64,10 @@ class CardConfig:
     # input tokens ~200K -> ~25.7K, with no latency change.
     restrict_tools: bool = True
     min_rr: float = 1.0
-    daily_loss_limit_r: float = -2.0
+    # #915 rule 2: a 1R daily loss cap, in the bet R `portfolio.sizing.
+    # resolve_bet_unit` defines (basis × f). Was -2.0 in r_base units (0.25% of
+    # equity each) before #980 moved the card onto the #915 R.
+    daily_loss_limit_r: float = -DAILY_LOSS_CAP_R
     entry_band_pct: float = 5.0
     fires_lookback_bars: int = 4
     # Selects the scoring window the ledger row is resolved against:

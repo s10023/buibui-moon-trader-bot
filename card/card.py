@@ -14,15 +14,12 @@ from card.prompt import PROMPT_VERSION
 from card.state import MarketState, RecentFire
 from portfolio.sizing import (
     SizingConfig,
-    apply_caps,
-    cluster_of,
-    effective_risk_fraction,
-    position_size,
-    regime_multiplier,
-    resolve_capital,
+    basket_legs,
+    leg_share_usd,
+    resolve_bet_unit,
     risk_per_unit,
-    round_down_to_step,
     round_trip_drag_r,
+    size_leg,
 )
 
 _VERDICTS = ("TRADE", "NO_TRADE")
@@ -253,7 +250,15 @@ class FinalCard:
     risk_usd: float | None
     risk_frac: float | None
     capital_used: float | None
+    """The #915 re-base basis R was taken from (`None` on a veto)."""
     capital_source: str | None
+    """"rebase", or the "live_equity" / "config" fallback while no basis is set."""
+    sizing_regime: str | None
+    """#915 regime this card sized under: "measurement" or "unlocked".
+
+    Required with no default, like `horizon`: rows written before #980 lack
+    it, and `card-place` reads neither, so older shapes stay readable.
+    """
     rr_tp1: float | None
     rr_tp1_net: float | None
     """RR at tp1 after round-trip fee + slippage — the number the floor gates on.
@@ -307,21 +312,21 @@ def post_pass(
 ) -> FinalCard:
     """The LLM proposes prices; this code decides money and rules (D6).
 
-    Sizing notes: g_vol is neutral 1.0 (no live equity curve exists at card
-    time); open risk is approximated as one r_base per open position (the
-    account rows carry no SL, so true open risk is unknowable) — surfaced as
-    a warning, never silent.
+    Sizing follows the #915 rule (#980). R = basis at the last re-base × f,
+    from `portfolio.sizing.resolve_bet_unit`: the stored `[bet_sizing]` basis
+    when one is set, else `resolve_capital`'s live-equity / config fallback
+    with a warning that R is floating. f is 1% (measurement) until the config
+    names an unlock. The same resolver gives the daily-loss breaker its R unit
+    upstream in `state.py`, so one figure drives both.
 
-    Capital is resolved via `portfolio.sizing.resolve_capital(sizing, equity)`
-    — live account equity when it is a finite, positive number, else the
-    configured `sizing.capital` constant — and is used for BOTH the risk-in-
-    dollars sizing below and (upstream, in `state.py`) the daily-loss circuit
-    breaker's R unit, so a single resolved figure drives both. `capital_used`
-    / `capital_source` are recorded on the returned `FinalCard` (`None` on a
-    VETO) precisely because `risk_frac` is only interpretable alongside the
-    capital that produced it — see the LOT_SIZE-rounding note below for why
-    the SAME resolved capital must be reused for the post-rounding restatement
-    too, not re-read from `sizing.capital`.
+    A card on a cluster member is one leg of a cluster entry: it takes
+    R / len(cluster), whether or not the siblings trade, so a sibling's
+    sub-lot skip is never reallocated here. A leg whose share floors to zero
+    at `qty_step` is skipped (VETOED, naming rule 3), never sized up.
+
+    `capital_used` / `capital_source` / `sizing_regime` are recorded on the
+    returned `FinalCard` (`None` on a VETO) because `risk_frac` is only
+    interpretable alongside the basis and regime that produced it.
 
     `qty_step` is the symbol's exchange LOT_SIZE step. When supplied the
     quantity is floored to it and risk is restated from the ROUNDED size, so
@@ -337,6 +342,7 @@ def post_pass(
     risk_frac: float | None = None
     capital_used: float | None = None
     capital_source: str | None = None
+    sizing_regime: str | None = None
     rr_tp1: float | None = None
     rr_tp1_net: float | None = None
 
@@ -432,74 +438,61 @@ def post_pass(
                     "card's own generation time (expired on arrival)"
                 )
 
-        # sizing (P1 reuse) — only when nothing vetoed
+        # sizing (#915 rule, #980) — only when nothing vetoed
         if not veto:
-            regime = panel.regime_1d if panel is not None else None
-            r_eff = effective_risk_fraction(
-                sizing,
-                g_vol=1.0,
-                g_regime=regime_multiplier(regime, sizing),
-            )
-            open_risk_total = 0.0
-            open_risk_cluster = 0.0
-            if state.account is not None and state.account.positions:
-                cluster = cluster_of(state.symbol, sizing)
-                open_risk_total = len(state.account.positions) * sizing.r_base
-                open_risk_cluster = sum(
-                    sizing.r_base
-                    for p in state.account.positions
-                    if cluster_of(p.symbol, sizing) == cluster
-                )
+            equity = state.account.equity_usd if state.account is not None else None
+            unit = resolve_bet_unit(sizing, equity)
+            capital = unit.basis_usd
+            capital_used = capital
+            capital_source = unit.basis_source
+            sizing_regime = unit.regime
+            if unit.basis_source == "config":
                 warnings.append(
-                    "open risk approximated as one r_base per open position"
+                    f"sized off configured capital ${capital:,.2f} — no re-base "
+                    "basis is set and account equity is unavailable, so R is "
+                    "against a constant, not the account"
                 )
-            r_adm = apply_caps(
-                r_eff,
-                symbol=state.symbol,
-                open_risk_total=open_risk_total,
-                open_risk_cluster=open_risk_cluster,
-                cfg=sizing,
-            )
-            if r_adm <= 0.0:
-                veto.append("no risk headroom under concurrent/cluster caps")
+            elif unit.basis_source == "live_equity":
+                warnings.append(
+                    "no re-base basis configured ([bet_sizing] basis_usd) — R "
+                    "floats with live equity on every card instead of holding "
+                    "constant between scheduled re-bases"
+                )
+            # One cluster entry is ONE bet: this leg takes 1/n of R, fixed
+            # before any leg is sized, so a sibling's sub-lot skip never
+            # flows back into this leg.
+            legs = basket_legs(state.symbol, sizing)
+            share = leg_share_usd(unit.r_usd, legs)
+            if share <= 0.0:
+                veto.append(
+                    f"{unit.regime} book sizes to f = 0 — no net edge under half-Kelly"
+                )
             else:
-                equity = state.account.equity_usd if state.account is not None else None
-                capital, used_live = resolve_capital(sizing, equity)
-                capital_used = capital
-                capital_source = "live_equity" if used_live else "config"
-                if not used_live:
-                    warnings.append(
-                        f"sized off configured capital ${capital:,.2f} — account "
-                        "equity unavailable, so the risk fraction is against a "
-                        "constant, not the account"
+                rounded = qty_step is not None and qty_step > 0.0
+                size_units = size_leg(share, entry, sl, qty_step)
+                if rounded and size_units <= 0.0:
+                    veto.append(
+                        f"sub-lot leg skipped: its 1/{legs} share of R "
+                        f"(${share:,.2f}) floors to zero at qty_step {qty_step}; "
+                        "the share is left unused, never sized up or reallocated"
                     )
-                risk_frac = r_adm
-                risk_usd = capital * r_adm
-                size_units = position_size(risk_usd, entry, sl)
-                if qty_step is not None and qty_step > 0.0:
-                    size_units = round_down_to_step(size_units, qty_step)
-                    if size_units <= 0.0:
-                        veto.append(
-                            f"size floors to zero at qty_step {qty_step} — "
-                            "risk budget is below one lot"
-                        )
-                    else:
-                        # Restate risk from the rounded size: the pre-rounding
-                        # figure overstates what is actually being risked.
-                        risk_usd = size_units * risk_per_unit(entry, sl)
-                        risk_frac = risk_usd / capital if capital > 0 else r_adm
                 else:
-                    warnings.append(
-                        "quantity is not LOT_SIZE-rounded (exchange filters "
-                        "unavailable) — size and risk are pre-rounding"
-                    )
-                notional_usd = size_units * entry
+                    # Risk is restated from the (rounded) size, so the printed
+                    # risk is the risk actually taken.
+                    risk_usd = size_units * risk_per_unit(entry, sl)
+                    risk_frac = risk_usd / capital
+                    notional_usd = size_units * entry
+                    if not rounded:
+                        warnings.append(
+                            "quantity is not LOT_SIZE-rounded (exchange filters "
+                            "unavailable) — size and risk are pre-rounding"
+                        )
 
     verdict = "VETOED" if veto else card.verdict
     if veto:
         size_units = notional_usd = risk_usd = risk_frac = rr_tp1 = None
         rr_tp1_net = None
-        capital_used = capital_source = None
+        capital_used = capital_source = sizing_regime = None
     return FinalCard(
         symbol=state.symbol,
         as_of_ms=state.now_ms,
@@ -511,6 +504,7 @@ def post_pass(
         risk_frac=risk_frac,
         capital_used=capital_used,
         capital_source=capital_source,
+        sizing_regime=sizing_regime,
         rr_tp1=rr_tp1,
         rr_tp1_net=rr_tp1_net,
         warnings=warnings,

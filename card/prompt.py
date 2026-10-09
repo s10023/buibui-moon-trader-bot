@@ -7,6 +7,14 @@ import json
 from card.config import CardConfig
 from card.state import MarketState
 
+# card-v9 (2026-10-09, #980): `account.daily_r` in the payload is now measured
+# in the #915 bet R (re-base basis × f, 1% at measurement size) instead of
+# r_base units (0.25% of equity), so the same loss reads ~4x smaller and the
+# breaker it feeds sits at -1R rather than -2R. A PAYLOAD break only: the
+# rubric is byte-identical to v8 and the emitted schema is unchanged, so
+# `card-place` is unaffected. `FinalCard` gains `sizing_regime`, which the
+# post-pass writes and the model never sees.
+#
 # card-v8 (2026-10-08, #821): the card emits `confluence_inputs`, one
 # {input, evidence} entry per agreeing input, so the one-external-input cap is
 # checkable from the artifact and enforced in validation (`card/card.py`). An
@@ -37,7 +45,7 @@ from card.state import MarketState
 # (see `card/state.py::_strip_censored_pundit_stats`) and rubric 3b names
 # `avg_atr_r` and its units. Bumped because the model sees a different payload
 # AND a different instruction — cards are comparable only within one version.
-PROMPT_VERSION = "card-v8"
+PROMPT_VERSION = "card-v9"
 
 _SCHEMA = """{
   "verdict": "TRADE" or "NO_TRADE",

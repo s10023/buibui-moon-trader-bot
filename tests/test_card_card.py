@@ -11,7 +11,12 @@ from card.card import FinalCard, parse_trade_card, post_pass, validate_card_obj
 from card.config import CardConfig
 from card.errors import CardValidationError
 from card.state import AccountState, MarketState, OpenPosition
-from portfolio.sizing import SizingConfig
+from portfolio.sizing import (
+    MEASUREMENT_F,
+    BetSizingRule,
+    BookUnlock,
+    SizingConfig,
+)
 
 
 def _trade_obj(**overrides: Any) -> dict[str, Any]:
@@ -246,12 +251,13 @@ def _post(
     qty_step: float | None = None,
     generated_at_ms: int = 1,
     cfg: CardConfig | None = None,
+    sizing: SizingConfig | None = None,
 ) -> FinalCard:
     card = parse_trade_card(json.dumps(card_obj))
     return post_pass(
         card,
         state,
-        SizingConfig(),
+        sizing or SizingConfig(),
         cfg or CardConfig(),
         digest="d" * 64,
         model="sonnet",
@@ -291,11 +297,13 @@ class TestPostPass:
     def test_clean_trade_sized_deterministically(self) -> None:
         final = _post(_trade_obj(), _state_for_post())
         assert final.verdict == "TRADE"
-        # r_base 0.25% of 10k = 25 USD risk; |entry-sl| = 2 -> 12.5 units
-        assert final.risk_usd == 25.0
-        assert final.size_units == 12.5
-        assert final.notional_usd == 1250.0
+        # #915: R = 1% of 10k = 100 USD, one leg of the 3-symbol majors
+        # cluster -> 33.33 USD; |entry-sl| = 2 -> 16.67 units
+        assert final.risk_usd == pytest.approx(100.0 / 3)
+        assert final.size_units == pytest.approx(100.0 / 3 / 2)
+        assert final.notional_usd == pytest.approx(100.0 / 3 / 2 * 100.0)
         assert final.rr_tp1 == 1.5
+        assert final.sizing_regime == "measurement"
         assert final.veto_reasons == []
 
     def test_no_trade_passes_through_unsized(self) -> None:
@@ -450,10 +458,10 @@ class TestPostPass:
         final = _post(_trade_obj(), state)
         assert not [w for w in final.warnings if "live record contradicts" in w]
 
-    def test_cluster_cap_consumes_headroom(self) -> None:
-        # ETHUSDT open long is in the majors cluster with BTCUSDT:
-        # cluster headroom 1% - 0.25% = 0.75% >= r_eff 0.25% -> still sized,
-        # but the approximation warning is present.
+    def test_open_sibling_leg_does_not_resize_this_leg(self) -> None:
+        """#915 rule 2: an open ETHUSDT leg is a sibling in the same cluster
+        entry, so BTCUSDT still takes its fixed 1/3 share — the old r_base
+        headroom approximation is gone."""
         account = AccountState(
             positions=[
                 OpenPosition(
@@ -471,7 +479,8 @@ class TestPostPass:
         )
         final = _post(_trade_obj(), _state_for_post(account=account))
         assert final.verdict == "TRADE"
-        assert any("approximated" in w for w in final.warnings)
+        assert final.risk_usd == pytest.approx(100.0 / 3)
+        assert not any("approximated" in w for w in final.warnings)
 
     def test_sizes_off_live_equity_when_present(self) -> None:
         account = AccountState(
@@ -479,15 +488,16 @@ class TestPostPass:
         )
         final = _post(_trade_obj(), _state_for_post(account=account))
         assert final.verdict == "TRADE"
-        # r_base 0.25% of 1201.33 = 3.0033 USD; |entry-sl| = 2 -> 1.50 units
-        assert final.risk_usd == pytest.approx(3.003325)
-        assert final.size_units == pytest.approx(1.5016625)
+        # no re-base basis: 1% of live 1201.33 = 12.0133, 1/3 leg = 4.0044
+        assert final.risk_usd == pytest.approx(1201.33 * MEASUREMENT_F / 3)
+        assert final.size_units == pytest.approx(1201.33 * MEASUREMENT_F / 3 / 2)
         assert final.capital_used == pytest.approx(1201.33)
         assert final.capital_source == "live_equity"
+        assert any("no re-base basis configured" in w for w in final.warnings)
 
     def test_falls_back_to_config_capital_and_warns(self) -> None:
         final = _post(_trade_obj(), _state_for_post())
-        assert final.risk_usd == 25.0
+        assert final.risk_usd == pytest.approx(100.0 / 3)
         assert final.capital_used == pytest.approx(10_000.0)
         assert final.capital_source == "config"
         assert any("configured capital" in w for w in final.warnings)
@@ -506,53 +516,24 @@ class TestPostPass:
         assert final.capital_used is None
         assert final.capital_source is None
 
-    def test_zero_headroom_vetoes(self) -> None:
-        # 4 open ETHUSDT longs in the majors cluster with BTCUSDT: each is
-        # approximated at one r_base (0.25%), so open_risk_cluster = 1% =
-        # r_cluster_max -> cluster headroom 0 -> apply_caps returns 0.0.
-        # Long side (no conflict veto) and daily_r 0 (no circuit breaker)
-        # isolate the headroom veto.
-        account = AccountState(
-            positions=[
-                OpenPosition(
-                    symbol="ETHUSDT",
-                    side="long",
-                    qty=1.0,
-                    entry=100.0,
-                    mark=100.0,
-                    upnl_usd=0.0,
-                )
-                for _ in range(4)
-            ],
-            daily_pnl_usd=0.0,
-            daily_r=0.0,
-            equity_usd=None,
-        )
-        final = _post(_trade_obj(), _state_for_post(account=account))
-        assert final.verdict == "VETOED"
-        assert any("headroom" in r for r in final.veto_reasons)
-        assert final.size_units is None
-        assert final.risk_usd is None
-        assert final.rr_tp1 is None
-
 
 class TestLotSizeRounding:
     """A quantity that is not a LOT_SIZE multiple is not orderable, and the
     risk it claims is only true before rounding (card-v4 defect, 5/5 live)."""
 
     def test_quantity_rounds_down_to_qty_step(self) -> None:
-        # 25 USD risk / |100-98| = 12.5 raw units; step 1.0 must floor it to 12.
+        # 33.33 USD leg / |100-98| = 16.67 raw units; step 1.0 floors to 16.
         final = _post(_trade_obj(), _state_for_post(), qty_step=1.0)
-        assert final.size_units == 12.0
+        assert final.size_units == 16.0
 
     def test_stated_risk_is_true_after_rounding(self) -> None:
-        # The bug: risk stayed at the pre-rounding 25.0 while 12 units at
-        # $2 risk/unit only actually risk 24.0.
+        # The bug: risk stayed at the pre-rounding 33.33 while 16 units at
+        # $2 risk/unit only actually risk 32.0.
         final = _post(_trade_obj(), _state_for_post(), qty_step=1.0)
-        assert final.risk_usd == 24.0
-        assert final.notional_usd == 1200.0
-        # risk_frac must agree with risk_usd, not stay at the pre-rounding r_adm
-        assert final.risk_frac == pytest.approx(0.0024)
+        assert final.risk_usd == 32.0
+        assert final.notional_usd == 1600.0
+        # risk_frac must agree with risk_usd, not stay at the pre-rounding share
+        assert final.risk_frac == pytest.approx(0.0032)
 
     def test_quantity_rounding_to_zero_vetoes(self) -> None:
         # 12.5 raw units against a 100-unit step floors to 0 — unsubmittable.
@@ -568,10 +549,11 @@ class TestLotSizeRounding:
         assert final.size_units is None
         assert final.capital_used is None
         assert final.capital_source is None
+        assert final.sizing_regime is None
 
     def test_absent_qty_step_warns_rather_than_silently_unrounded(self) -> None:
         final = _post(_trade_obj(), _state_for_post())
-        assert final.size_units == 12.5
+        assert final.size_units == pytest.approx(100.0 / 3 / 2)
         assert any("not LOT_SIZE-rounded" in w for w in final.warnings)
 
     def test_rounded_risk_frac_uses_resolved_capital_not_the_config_constant(
@@ -588,9 +570,109 @@ class TestLotSizeRounding:
         final = _post(_trade_obj(), _state_for_post(account=account), qty_step=1.0)
         assert final.verdict == "TRADE"
         assert final.capital_used == pytest.approx(1201.33)
-        assert final.size_units == 1.0  # floored from 1.5016625
-        assert final.risk_usd == pytest.approx(2.0)  # 1.0 unit x |100-98|
-        assert final.risk_frac == pytest.approx(2.0 / 1201.33)
+        assert final.size_units == 2.0  # floored from 2.0022
+        assert final.risk_usd == pytest.approx(4.0)  # 2.0 units x |100-98|
+        assert final.risk_frac == pytest.approx(4.0 / 1201.33)
+
+
+def _unlock(**kw: Any) -> BookUnlock:
+    base: dict[str, Any] = {
+        "evidence": "journal 2026-10 window, #915 manual unlock",
+        "wins": 58,
+        "n": 60,
+        "rr_gross": 3.0,
+        "stop_pct": 0.02,
+    }
+    base.update(kw)
+    return BookUnlock(**base)
+
+
+class TestBetSizingRule:
+    """#980: the card sizes under the #915 rule. Each test pins one rule."""
+
+    _BASIS = 1000.0
+
+    def _rule(self, **kw: Any) -> SizingConfig:
+        return SizingConfig(
+            bet_rule=BetSizingRule(basis_usd=self._BASIS, rebased_at="2026-10-01", **kw)
+        )
+
+    def test_default_is_the_measurement_size(self) -> None:
+        """Rule 5: no book is unlocked, so f is 1% unless config names one."""
+        final = _post(_trade_obj(), _state_for_post(), sizing=self._rule())
+        assert final.sizing_regime == "measurement"
+        assert final.risk_usd == pytest.approx(self._BASIS * 0.01 / 3)
+
+    def test_cluster_entry_is_one_bet_not_one_per_leg(self) -> None:
+        """Rule 2: a cluster member takes 1/n of R. The control is the same
+        symbol outside any cluster, which takes the whole R — so a mutation
+        sizing each leg at a full R reads 3x here and fails."""
+        in_cluster = _post(_trade_obj(), _state_for_post(), sizing=self._rule())
+        alone = _post(
+            _trade_obj(),
+            _state_for_post(),
+            sizing=SizingConfig(
+                clusters=(),
+                bet_rule=BetSizingRule(basis_usd=self._BASIS, rebased_at="2026-10-01"),
+            ),
+        )
+        assert alone.risk_usd == pytest.approx(self._BASIS * 0.01)
+        assert in_cluster.risk_usd == pytest.approx(self._BASIS * 0.01 / 3)
+
+    def test_rebase_basis_wins_over_live_equity(self) -> None:
+        """Rule 1: R holds between re-bases instead of tracking equity."""
+        account = AccountState(
+            positions=[], daily_pnl_usd=0.0, daily_r=0.0, equity_usd=1201.33
+        )
+        final = _post(
+            _trade_obj(), _state_for_post(account=account), sizing=self._rule()
+        )
+        assert final.capital_used == self._BASIS
+        assert final.capital_source == "rebase"
+        assert final.risk_usd == pytest.approx(self._BASIS * 0.01 / 3)
+        assert not any("re-base" in w for w in final.warnings)
+
+    def test_sub_lot_leg_is_skipped_and_names_the_rule(self) -> None:
+        """Rule 3: 3.33 USD / 2 = 1.67 units floors to 0 at step 5 — skip,
+        never size up to one lot."""
+        final = _post(
+            _trade_obj(), _state_for_post(), qty_step=5.0, sizing=self._rule()
+        )
+        assert final.verdict == "VETOED"
+        assert final.size_units is None
+        assert any("sub-lot leg skipped" in r for r in final.veto_reasons)
+        assert any("left unused" in r for r in final.veto_reasons)
+
+    def test_unlocked_book_sizes_at_its_rule_four_f(self) -> None:
+        """Rule 4 + 6: an unlock in config sizes at min(1/k, half-Kelly) and
+        the card says so."""
+        unlock = _unlock()
+        final = _post(_trade_obj(), _state_for_post(), sizing=self._rule(unlock=unlock))
+        assert final.sizing_regime == "unlocked"
+        assert unlock.f > MEASUREMENT_F
+        assert final.risk_usd == pytest.approx(self._BASIS * unlock.f / 3)
+
+    def test_unlocked_book_with_no_net_edge_vetoes(self) -> None:
+        """Rule 4: p capped at 0.45 against RR 1.2 gross has no edge, so f is
+        0 and the card refuses to size rather than trading at some default."""
+        unlock = _unlock(rr_gross=1.2)
+        assert unlock.f == 0.0
+        final = _post(_trade_obj(), _state_for_post(), sizing=self._rule(unlock=unlock))
+        assert final.verdict == "VETOED"
+        assert any("f = 0" in r for r in final.veto_reasons)
+
+    def test_daily_cap_is_one_bet_r(self) -> None:
+        """Rule 2: the default breaker fires at exactly -1R and not above."""
+        at_cap = AccountState(
+            positions=[], daily_pnl_usd=-10.0, daily_r=-1.0, equity_usd=None
+        )
+        under = AccountState(
+            positions=[], daily_pnl_usd=-9.9, daily_r=-0.99, equity_usd=None
+        )
+        assert _post(_trade_obj(), _state_for_post(account=at_cap)).verdict == (
+            "VETOED"
+        )
+        assert _post(_trade_obj(), _state_for_post(account=under)).verdict == "TRADE"
 
 
 class TestValidUntilExpiry:

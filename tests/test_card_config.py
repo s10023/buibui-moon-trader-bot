@@ -8,6 +8,7 @@ import pytest
 
 from card.config import CARD_HORIZONS, CardConfig
 from card.errors import CardError, CardValidationError
+from portfolio.sizing import DAILY_LOSS_CAP_R
 
 
 class TestCardConfig:
@@ -20,7 +21,8 @@ class TestCardConfig:
         assert cfg.max_thinking_tokens is None
         assert cfg.restrict_tools is True
         assert cfg.min_rr == 1.0
-        assert cfg.daily_loss_limit_r == -2.0
+        # #915 rule 2: the 1R daily cap, imported rather than restated.
+        assert cfg.daily_loss_limit_r == -DAILY_LOSS_CAP_R == -1.0
         assert cfg.entry_band_pct == 5.0
         assert cfg.fires_lookback_bars == 4
         assert cfg.horizon == "intraday"

@@ -23,7 +23,7 @@ from analytics.store.signals import get_signals_history
 from analytics.xsmom.live import target_book_to_dict
 from analytics.xsmom.replay import replay_targets
 from card.config import CardConfig
-from portfolio.sizing import SizingConfig, resolve_capital
+from portfolio.sizing import SizingConfig, resolve_bet_unit
 
 DAY_MS = 86_400_000
 
@@ -42,7 +42,7 @@ class OpenPosition:
 class AccountState:
     positions: list[OpenPosition]
     daily_pnl_usd: float
-    # daily_pnl_usd / (resolved capital * r_base); see portfolio.sizing.resolve_capital
+    # daily_pnl_usd / bet R (basis × f); see portfolio.sizing.resolve_bet_unit
     daily_r: float
     equity_usd: float | None
 
@@ -323,10 +323,11 @@ def snapshot_market_state(
             day_start = now_ms - (now_ms % DAY_MS)
             pnl = account_provider.daily_pnl_usd(day_start, now_ms)
             equity = account_provider.equity_usd()
-            capital, _used_live = resolve_capital(sizing, equity)
-            # Guard the divisor rather than trusting it: r_base is operator-set
-            # and a zero here would kill state building outright.
-            r_unit = capital * sizing.r_base
+            # The breaker's R is the bet R the card sizes with (#915 rule 2):
+            # basis at the last re-base × f, one resolver for both.
+            # Guard the divisor rather than trusting it: an unlocked book with
+            # no net edge has f = 0, and a zero would kill state building.
+            r_unit = resolve_bet_unit(sizing, equity).r_usd
             if r_unit > 0.0:
                 daily_r = pnl / r_unit
             else:
@@ -338,12 +339,12 @@ def snapshot_market_state(
                 # (`prompt.py`) and `--dry-run` output — never the rendered
                 # card or the `ai-cards.jsonl` ledger. Surfacing it as a card
                 # warning too is a filed follow-up, not yet done. Within that
-                # reach, it is what keeps a misconfigured [portfolio]
-                # capital/r_base from looking safe.
+                # reach, it is what keeps a zero bet R (an unlocked book whose
+                # half-Kelly is 0) from looking safe.
                 daily_r = 0.0
                 health.append(
                     "daily_r unavailable: non-positive risk unit "
-                    "(capital x r_base) — the daily-loss circuit breaker "
+                    "(basis x f) — the daily-loss circuit breaker "
                     "cannot fire this run"
                 )
             account = AccountState(
