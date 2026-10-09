@@ -542,6 +542,13 @@ def run(
     emit(f"VERDICT: {v}")
     if v == "PASS":
         emit("  s7 tradeable test is owed (minimum lot at local equity, survival, XS).")
+    elif v == "FAIL" and all(g.powered_null and g.mean_ci_lo > 0 for g in results):
+        # Contained within +/-bar AND above zero: real, and smaller than the gate
+        # can act on. "No effect" would be the wrong sentence to file.
+        emit(
+            "  powered null LICENSED and the mean CI EXCLUDES zero under both "
+            "tie-breaks - a positive effect smaller than the bar, never 'no effect'."
+        )
     elif v == "FAIL" and all(g.powered_null for g in results):
         emit("  powered null LICENSED under both tie-breaks - a filed NO is allowed.")
     elif v == "FAIL":
