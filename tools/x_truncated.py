@@ -9,11 +9,13 @@ recover the tail — only a human paste can.** The skill's older rule (name the 
 in `gap_note`) records the damage without offering the one repair that exists. Measured
 on the 2026-08-25 tranche: 14 of 18 posts truncated across 5 of 7 bundles.
 
-Deliberately stdlib-only, with NO `sys.path` bootstrap, because it imports nothing from
-the repo — a bare `python3 tools/x_truncated.py` therefore works, and
-`test_bare_invocation_works` pins that. If a future edit adds an `analytics.*` import it
-will break under the bare form (which puts `tools/` on the path, not the repo root) and
-that test is what fails; add the bootstrap then, the way `distil_power.py` had to.
+Deliberately stdlib-only, with NO module-level `sys.path` bootstrap: its one repo
+import, the stdlib-only `utils.stdio`, sits inside the `__main__` block after a scoped
+path insert. A bare `python3 tools/x_truncated.py` therefore works, and
+`test_bare_invocation_works` pins that. If a future edit adds a module-level
+`analytics.*` import it will break under the bare form (which puts `tools/` on the path,
+not the repo root) and that test is what fails; add the bootstrap then, the way
+`distil_power.py` had to.
 """
 
 from __future__ import annotations
@@ -157,4 +159,10 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    # Repo root, for utils.stdio: a bare `python tools/<name>.py` puts only
+    # tools/ on the path. Scoped to the entry so an import mutates nothing.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from utils.stdio import utf8_stdio
+
+    utf8_stdio()
     raise SystemExit(main())

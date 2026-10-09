@@ -14,6 +14,10 @@ SCHEDULED jobs and always did, so the crash only ever showed on a HAND run --
 exactly the surface a session and the operator use, and exactly the one no test
 covered. Both are pinned here so neither can quietly lose it.
 
+A bare `buibui …` or `python tools/<name>.py` is a THIRD surface that no
+environment variable reaches; `tests/test_utf8_stdio.py` pins the code-level fix
+(`utils.stdio.utf8_stdio`) for that one.
+
 A no-op on Linux, where UTF-8 is already the default.
 """
 

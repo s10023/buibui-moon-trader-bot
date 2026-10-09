@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 
+from colorama import just_fix_windows_console
 from dotenv import load_dotenv
 
 from cli import (
@@ -21,6 +22,7 @@ from cli import (
     signal,
     web,
 )
+from utils.stdio import utf8_stdio
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -50,6 +52,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    # Before anything prints: a redirected stdout is cp1252 on Windows, and the
+    # sweep's closing `═` table killed a run that had already saved (utils/stdio.py).
+    utf8_stdio()
+    # Enables ANSI colour on a legacy Windows console for the monitors. Unlike the
+    # `colorama.init()` this replaces, it never wraps a redirected stream.
+    just_fix_windows_console()
     load_dotenv()
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"

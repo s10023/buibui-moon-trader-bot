@@ -144,5 +144,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 if __name__ == "__main__":
+    from utils.stdio import utf8_stdio
+
+    utf8_stdio()
     args = _parse_args(sys.argv[1:])
     export_live_db(args.src, args.out, read_venue_order=args.read_venue_order)

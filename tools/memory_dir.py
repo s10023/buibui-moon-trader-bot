@@ -109,6 +109,9 @@ def memory_dir(repo_root: Path | None = None, *, home: Path | None = None) -> Pa
 
 
 if __name__ == "__main__":  # pragma: no cover - a Makefile entry point
+    from utils.stdio import utf8_stdio
+
+    utf8_stdio()
     # POSIX spelling deliberately: the only consumer is a `$(shell ...)` in the
     # Makefile, whose recipe shell EATS backslashes -- printing the native form
     # turned `C:\Users\User\...` into `C:UsersUser...` and `make status` reported
