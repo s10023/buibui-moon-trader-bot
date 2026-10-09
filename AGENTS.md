@@ -1359,11 +1359,13 @@ blocked. Never assume the flip happened because you printed the command.
   never as safety of the check, since `security-scan` (Trivy) in that slot consumes minutes and
   dies.
 - **What makes a SHARED window safe is concurrency, not the rule.** `cancel-in-progress` is
-  `${{ github.event_name == 'pull_request' }}` — false on push — so main runs QUEUE and a
-  second merge's CI cannot start until the first finishes, chained job and all. The group is
-  keyed on `${{ github.workflow }}`, so that protection is **per workflow** too, which is the
-  same scope gap as the waiter above. ⚠ **A repo without this has none of it — check the
-  wifey fork rather than assuming it inherits.**
+  `true` on push too (since 2026-10-09; `signal-watch` excepted), so a newer merge CANCELS the
+  in-flight main run and only the newest SHA's run finishes — merges are squashed, so main is
+  linear and that run covers every earlier commit. Gate the flip-back on the NEWEST merge SHA;
+  a cancelled run on an older SHA is superseded, not red (`wait_ci.py` reports it so). The
+  group is keyed on `${{ github.workflow }}`, so that protection is **per workflow** too, which
+  is the same scope gap as the waiter above. ⚠ **A repo without this has none of it — check
+  the wifey fork rather than assuming it inherits.**
 - **A merge-run failure at ~3s with `steps=0` and `visibility=PRIVATE` is billing.** Verify
   duration, visibility and step count, then merge. Never debug it. ⚠ **`wait_ci.py` reports
   `steps` as EXECUTED/DECLARED, and only the executed half means anything to a reader.** A
