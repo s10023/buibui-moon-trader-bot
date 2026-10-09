@@ -17,6 +17,9 @@
         // we version an upstream copy without owning its style.
         "!.claude",
         ".claude/skills/*/SKILL.md",
+        // A skill's `references/` holds rules moved out of its SKILL.md (#884),
+        // so it is gated exactly like the SKILL.md that points at it.
+        ".claude/skills/*/references/**/*.md",
         ".claude/context/*.md",
         ".claude/agents/*.md",
         ".claude/rules/*.md",
