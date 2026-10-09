@@ -4,13 +4,14 @@
 `make docs-index-check` (and `tests/test_docs_index.py`) fails when this file
 drifts from the corpus.
 
-**61 audits.** A verdict line is shown only where one could be read
-out of a Verdict heading as prose — that is **44 of 61**.
+**62 audits.** A verdict line is shown only where one could be read
+out of a Verdict heading as prose — that is **45 of 62**.
 An em dash means the doc states its verdict in a table, a blockquote or the body,
 **not** that it lacks one; open the file. Nothing here is keyword-guessed.
 
 | Date | Audit | Verdict (as written) | File |
 | --- | --- | --- | --- |
+| 2026-10-09 | H13 — 15m opening-range breakout at the NYSE cash open: fails the gate, positive and small | H13 fails the gate under both same-bar tie-breaks, so the round-1 verdict is FAIL and the slot does not carry a candidate… | [2026-10-09-h13-us-open-orb-result.md](2026-10-09-h13-us-open-orb-result.md) |
 | 2026-10-09 | E841 — hedged violent-up continuation out of universe: killed at K1 | E841 is killed at K1 and does not run. On the holdout's book-day series (n 2,142, sd 0.906R), the DSR leg at N = 3 and the 0.005… | [2026-10-09-e841-violent-up-holdout-result.md](2026-10-09-e841-violent-up-holdout-result.md) |
 | 2026-10-08 | H8 and A31 re-run on a causal tagger — the continuation effect was look-ahead | C836's nominating cell no longer reads BUILD. On the causal tagger, 4h shorts below the weekly VWAP hold +0.160R on n=2,337. That… | [2026-10-08-h8-a31-causal-tagger-rerun.md](2026-10-08-h8-a31-causal-tagger-rerun.md) |
 | 2026-10-08 | A31 re-run — H8 VWAP gating at 4h, priced on the UTC-day cluster | The cell still reads BUILD. On the gate-deciding backtest substrate `vwap_weekly/below/short` at 4h holds +0.467R on n=2,355… | [2026-10-08-a31-h8-vwap-cluster-rerun.md](2026-10-08-a31-h8-vwap-cluster-rerun.md) |
