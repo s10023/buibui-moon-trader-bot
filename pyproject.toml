@@ -49,7 +49,8 @@ dependencies = [
     "uvicorn[standard] (>=0.54.0)",
     "pyarrow (>=23.0.1,<24.0.0)",
     "yt-dlp (>=2026.8.18.122307.dev0,<2027.0.0)",
-    "yt-dlp-ejs (>=0.8.0,<0.9.0)"
+    "yt-dlp-ejs (>=0.8.0,<0.9.0)",
+    "exchange-calendars (>=4.13.2,<5.0.0)"
 ]
 package-mode = false
 
@@ -108,6 +109,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "uvicorn.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "exchange_calendars.*"
 ignore_missing_imports = true
 
 [tool.coverage.run]

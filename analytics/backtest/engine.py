@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import functools
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -86,7 +86,7 @@ class Trade:
     tp_price: float
     exit_time: int | None = None
     exit_price: float | None = None
-    outcome: str = "open"  # "win" | "loss" | "open"
+    outcome: str = "open"  # "win" | "loss" | "time" | "open"
     fee_pct: float = 0.0
     slippage_pct: float = 0.0  # per-leg slippage as a fraction of entry price
     # funding cost in R units; precomputed at close (see run_backtest)
@@ -797,6 +797,8 @@ def run_backtest(
     htf_slope_series_by_anchor: Mapping[tuple[str, int, int], pd.Series] | None = None,
     slippage_pct: float = 0.0,
     funding_series: pd.Series | None = None,
+    time_exit_ms: Callable[[int], int | None] | None = None,
+    tie_break: Literal["adverse", "target"] = "adverse",
 ) -> BacktestResult:
     """Simulate trades from signals on historical OHLCV.
 
@@ -851,6 +853,19 @@ def run_backtest(
         and converted to R units (sum × entry_price / risk). Long pays positive
         funding (reduces net R); short receives (negative funding_r adds to net R).
         None or empty → funding_r stays 0.0 (byte-stable no-op).
+    time_exit_ms: maps a signal's open_time to a wall-clock deadline (ms), or
+        None for no deadline. Only bars OPENING before the deadline can stop or
+        target the trade; if neither is hit, it exits at the close of the last
+        such bar with outcome="time" and exit_time = the deadline. A trade whose
+        entry bar opens at or after its deadline is not taken, and one whose data
+        ends before the deadline stays open. Added for H13's session-close exit
+        (#848); None (default) is a byte-stable no-op.
+    tie_break: how a bar that touches BOTH the stop and the target resolves.
+        "adverse" (default, every published number) books the loss; "target"
+        books the win. Exists so a study can report both readings (ST56/ST57).
+    Neither knob is plumbed through ``backtest_config`` or ``_backtest_run_id``,
+    so no persisted run can carry a non-default value. Plumbing either one there
+    means joining the run_id in the same change (AGENTS.md, ST86).
     """
     if live_parity is not None and any(
         live_parity.is_on(gate) for gate in _LIVE_PARITY_GATE_ORDER
@@ -1067,6 +1082,16 @@ def run_backtest(
         op = opens_np[entry_idx:]
         t = ohlcv_times_np[entry_idx:]
 
+        deadline = time_exit_ms(signal_time) if time_exit_ms is not None else None
+        deadline_reached = False
+        if deadline is not None:
+            n_window = int(np.searchsorted(t, deadline, side="left"))
+            if n_window == 0:
+                continue
+            # A bar at/after the deadline exists, so the data covers it.
+            deadline_reached = n_window < len(t)
+            h, lo, op, t = h[:n_window], lo[:n_window], op[:n_window], t[:n_window]
+
         if direction == "long":
             sl_idxs = np.nonzero(lo <= sl_price)[0]
             tp_idxs = np.nonzero(h >= tp_price)[0]
@@ -1087,7 +1112,10 @@ def run_backtest(
         tp_crossed_when: CrossedWhen = (
             "at_or_above" if direction == "long" else "at_or_below"
         )
-        if sl_first <= tp_first and sl_first < len(t):
+        sl_wins = sl_first < tp_first or (
+            sl_first == tp_first and tie_break == "adverse"
+        )
+        if sl_wins and sl_first < len(t):
             trade.exit_time = int(t[sl_first])
             trade.exit_price = gap_fill_price(
                 entry=entry_price,
@@ -1105,6 +1133,10 @@ def run_backtest(
                 crossed_when=tp_crossed_when,
             )
             trade.outcome = "win"
+        elif deadline is not None and deadline_reached:
+            trade.exit_time = deadline
+            trade.exit_price = float(closes_np[entry_idx + len(t) - 1])
+            trade.outcome = "time"
         # else: neither hit → trade remains open
 
         # Funding cost in R units (P0b PR-2). Sum funding stamps held in
