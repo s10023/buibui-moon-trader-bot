@@ -1,6 +1,6 @@
-# Step 6 — the PR body's Documentation updates section
+# Step 8 — the PR body's Documentation updates section
 
-**When:** Read at Step 6, after the PR exists.
+**When:** Read at Step 8, after the PR exists.
 
 Reference for `.claude/skills/post-branch/SKILL.md`, which holds the run order and the condensed rules. This file holds the full text, including the dated incidents behind each rule. The passages below are carried over verbatim from the pre-split SKILL.md (#884), so where one says "this file", "this skill", "above" or "below" about the phase table or a step, it means SKILL.md.
 

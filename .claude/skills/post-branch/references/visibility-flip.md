@@ -4,7 +4,7 @@
 
 Reference for `.claude/skills/post-branch/SKILL.md`, which holds the run order and the condensed rules. This file holds the full text, including the dated incidents behind each rule. The passages below are carried over verbatim from the pre-split SKILL.md (#884), so where one says "this file", "this skill", "above" or "below" about the phase table or a step, it means SKILL.md.
 
-**Gate it on `sensitive-terms` first.** Phase 0's sweep carries the leg; read it before
+**Gate it on `sensitive-terms` first.** Step 0's sweep carries the leg; read it before
 flipping, because the flip publishes the whole history and nothing downstream can take that
 back. `NOT CONFIGURED` means the gitignored term list is missing (reclone, fresh machine, **or a
 WORKTREE** — a tracked-files-only checkout never receives a gitignored file, so this leg fires
@@ -31,7 +31,7 @@ user every single time.
 
 ⚠ **THE FLIP IS OPERATOR-RUN — you cannot perform it.** `gh repo edit --visibility` is
 blocked by the permission classifier, and it is blocked in BOTH directions, so the flip back
-in phase 6 is the operator's too. Do not discover this mid-chain: on #669 it surfaced with
+in Step 11 is the operator's too. Do not discover this mid-chain: on #669 it surfaced with
 the branch already pushed and the PR body already written, costing a round trip. **Order:
 finish the PR body FIRST, then hand over the exact command and WAIT for confirmation, then
 `gh pr create`** — an unconfirmed flip plus a created PR is a billing-red for nothing.
@@ -59,9 +59,9 @@ the operator knows whether now is a good moment. Ask the unsettled half; never
 re-ask the settled one.
 
 - **A docs-only diff skips the flip** — the path-filtered checks execute zero
-  steps on a `.md`-only change. Phase 1 has already read the diff, so this is
+  steps on a `.md`-only change. Step 1 has already read the diff, so this is
   already known by the time you get here.
-- **Phase 6 closes the other half of the pair** — the flip BACK, gated on
+- **Step 11 closes the other half of the pair** — the flip BACK, gated on
   `make wait-ci-main`. Do not treat the flip as done when the PR opens.
 - ⚠ **`make wait-ci-main` settles on ONE workflow; the flip affects ALL of them.** It gates
   on the `CI` workflow's job-count floor, so a *different* workflow starting after CI settles

@@ -9,9 +9,9 @@ make preflight
 ```
 
 **Order is load-bearing: this runs AFTER the commit above, never before.** A
-clone only ever sees *committed* state, so running it earlier — in phase 0's
+clone only ever sees *committed* state, so running it earlier — in Step 0's
 sweep, say — tests stale HEAD and reports green while the doc commits this
-phase just produced go untested. The script refuses outright on a dirty tree
+step just produced go untested. The script refuses outright on a dirty tree
 rather than reporting that green.
 
 **It IS this branch's one full-suite run** — measured 2026-08-20 on 4205 tests:

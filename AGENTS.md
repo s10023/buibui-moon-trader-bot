@@ -1216,7 +1216,7 @@ covered by `make docs-index` (`tools/docs_index.py` indexes `docs/audits/` and
 
 ⚠ **That exemption is also why a research doc has no owner, so one rule rides on top: a
 `docs/research/` doc that RECOMMENDS work must file its own GitHub Issue naming its filename,
-and `/post-branch` Step 5b asks for it.** Being outside the index also puts it outside
+and `/post-branch` Step 6 asks for it.** Being outside the index also puts it outside
 `TestEveryNewAuditExposesItsVerdict` and outside `daily_check.py`'s tier-2 `audit verdicts`
 join — three surfaces, none of which will ever ask who owns it. Measured: the 2026-08-14
 trading-canon audit recommended three books and a repo and sat unowned for three days with
@@ -1406,10 +1406,10 @@ about "did not run" and "passed" not looking alike, and it is stated one paragra
 Ported from the wifey fork 2026-08-19, where both halves of the pair are gated in
 `/post-branch` (flip-forward before `gh pr create`, flip-back after the merge run).
 
-**Invoke `/post-branch` on every branch, and SPLIT it around `gh pr create`.** Steps 1–5b
-and 7 (behaviour gate → changed artifacts → doc walk → surface checks → MEMORY.md → SoT
+**Invoke `/post-branch` on every branch, and SPLIT it around `gh pr create`.** Steps 0–7
+(sweep → behaviour gate → changed artifacts → doc walk → surface checks → MEMORY.md → SoT
 reconcile → commit and push) are commit-producing and run **before** `gh pr create`, so the
-doc fixes ship in the initial push. Steps 6 and 10a/10c (PR body, handoff) need the PR to
+doc fixes ship in the initial push. Steps 8–11 (PR body, pre-merge check, handoff, re-verify) need the PR to
 exist and run **after**; they produce no commits. Step 10b writes a gitignored file and is
 free either way.
 
