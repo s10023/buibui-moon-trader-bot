@@ -311,7 +311,7 @@ not fork it:
 | setup (`retrospective: false`, `rejected: false`) | — | `docs/plans/pundit-calls.jsonl` (one JSON line, schema below) |
 | setup (`retrospective: true`) | — | **drop** — "retrospective — call predates video"; digest + note only |
 | setup (`rejected: true`) | — | **drop** — "rejected — speaker argued against taking it"; digest + note only |
-| mechanic | — | `docs/plans/mechanics-backlog.md` (a `-` list bullet) |
+| mechanic | — | `docs/plans/mechanics-backlog.md` (a `-` list bullet ending in a `Status:` line) |
 | claim | NOVEL | `docs/plans/thesis-inbox.md` (a draft `H` row) |
 | claim | ALREADY-TESTED / FROZEN-CATEGORY / NOT-FALSIFIABLE | **drop** — state "seen, verdict X", write nothing |
 
@@ -325,6 +325,11 @@ PYTHONPATH=. poetry run python tools/route_dedup.py mark \
   --sink <the FULL path route_target returned, e.g. docs/plans/pundit-calls.jsonl>
 ```
 
+- **Every mechanics bullet ends with one indented `Status:` line (#977):** `Status: NEW`,
+  or `Status: CLOSED (<kind>) — verdict: <pointer>` when the review gate files the row as
+  record-only against a filed verdict, so it never reads open. Kinds and format:
+  `tools/mechanics_status.py`. After the batch's last mechanics append, run
+  `PYTHONPATH=. poetry run python tools/mechanics_status.py --check` and fix any row it names.
 - **Stream C requires a real `symbol`**; `null`/`""` → dropped ("no symbol resolved").
 - **Deep links are separator-aware:** URL contains `?` → append `&t=<ts>s`; otherwise
   (`youtu.be`) `?t=<ts>s`. X video gets **no** deep link — plain URL, offset in `ts`.

@@ -195,6 +195,25 @@ def test_split_mechanics_on_top_level_bullets_keeping_continuations() -> None:
     assert "continued here" in entries[0]
 
 
+def test_mechanics_status_line_is_not_scored_but_stays_in_the_excerpt() -> None:
+    """Every #977 entry ends with a Status line whose words all entries share; scoring
+    it diluted the term Jaccard and cut self-recall 103 -> 83 of 199 on the live file."""
+    rule = "- 2026-07-29 (@a): move the stop to breakeven after a fixed point profit"
+    status = (
+        "  Status: CLOSED (evidence) — verdict: bot-book exit tuning is closed as a P&L "
+        "lever, the composite lost to fixed exits"
+    )
+    claim = "move the stop to breakeven after a fixed point profit"
+    bare = find_similar(claim, MECHANICS_SINK, rule + "\n")
+    tagged = find_similar(claim, MECHANICS_SINK, rule + "\n" + status + "\n")
+    assert bare and tagged
+    assert tagged[0].score == bare[0].score
+    assert (
+        "Status: CLOSED"
+        in _comparable_entries(MECHANICS_SINK, rule + "\n" + status, None)[0][1]
+    )
+
+
 def test_split_pundit_calls_one_entry_per_line() -> None:
     text = '{"author":"a"}\n\n{"author":"b"}\n'
     assert len(split_entries(PUNDIT_SINK, text)) == 2

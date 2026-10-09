@@ -422,11 +422,18 @@ pasted, then run the flow once over the whole set.
    | content_type | verdict | Append to |
    | --- | --- | --- |
    | setup | — | `docs/plans/pundit-calls.jsonl` (one JSON line, schema below) |
-   | mechanic | — | `docs/plans/mechanics-backlog.md` (a `-` list bullet) |
+   | mechanic | — | `docs/plans/mechanics-backlog.md` (a `-` list bullet ending in a `Status:` line) |
    | claim | NOVEL | `docs/plans/thesis-inbox.md` (a draft `H` row) |
    | claim | ALREADY-TESTED / FROZEN-CATEGORY / NOT-FALSIFIABLE | **drop** — state "seen, verdict X", write nothing |
 
    Create the sink file with a one-line header if it does not exist.
+
+   **Every mechanics bullet ends with one indented `Status:` line (#977):** `Status: NEW`,
+   or `Status: CLOSED (<kind>) — verdict: <pointer>` when the review gate files the row
+   as record-only against a filed verdict, so it never reads open. Kinds and format:
+   `tools/mechanics_status.py`. After the batch's last mechanics append, run
+   `PYTHONPATH=. poetry run python tools/mechanics_status.py --check` and fix any row it
+   names.
 
    **After each successful append, record it:**
 
