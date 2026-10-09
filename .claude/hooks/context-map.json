@@ -108,7 +108,7 @@
       "globs": [
         "card/*.py"
       ],
-      "text": "card/: the pundit board's per-author `avg_r` is STRIPPED from the payload on purpose -- it is computed on a winner-dropped subsample and gets the ORDER wrong; use `avg_atr_r`. The rubric string is VERSIONED, so changing its text requires a PROMPT_VERSION bump plus a new digest in tests/test_card_prompt.py, not a silent fix. `--as-of` pins the INPUTS and omits the live account by design. Sizing resolves capital live-account-first, and every card must record capital_used / capital_source -- a bare risk_frac is uninterpretable after the fact."
+      "text": "card/: the pundit board's per-author `avg_r` is STRIPPED from the payload on purpose -- it is computed on a winner-dropped subsample and gets the ORDER wrong; use `avg_atr_r`. The rubric string is VERSIONED, so changing its text requires a PROMPT_VERSION bump plus a new digest in tests/test_card_prompt.py, not a silent fix. `--as-of` pins the INPUTS and omits the live account by design. Sizing follows the #915 rule via portfolio.sizing.resolve_bet_unit (R = re-base basis x f, 1% until a configured unlock; a cluster member takes R/len(cluster)) -- never restate it here. Every card must record capital_used / capital_source / sizing_regime -- a bare risk_frac is uninterpretable after the fact."
     },
     {
       "id": "vendored-skills",

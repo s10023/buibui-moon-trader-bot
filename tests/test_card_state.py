@@ -31,7 +31,7 @@ from card.state import (
     snapshot_market_state,
     state_digest,
 )
-from portfolio.sizing import SizingConfig
+from portfolio.sizing import MEASUREMENT_F, BetSizingRule, SizingConfig
 
 
 def _minimal_state(**overrides: object) -> MarketState:
@@ -325,18 +325,20 @@ class TestSnapshotMarketState:
         assert len(state.recent_fires) == 1
         assert state.recent_fires[0].stars == 4
         assert state.recent_fires[0].dsr == pytest.approx(0.96)
-        # account: daily_r = -50 / (9_000 * 0.0025) = -2.2222, resolved off the
-        # provider's live equity rather than the 10_000.0 config constant.
+        # account: daily_r = -50 / (9_000 * 0.01) = -0.5556 in #915 bet R,
+        # resolved off the provider's live equity (no re-base basis is set)
+        # rather than the 10_000.0 config constant.
         assert state.account is not None
-        assert state.account.daily_r == pytest.approx(-2.2222222222, abs=1e-9)
+        assert state.account.daily_r == pytest.approx(-50 / (9_000 * MEASUREMENT_F))
         assert state.account.positions[0].side == "short"
 
     def test_daily_r_scales_off_live_equity_not_the_config_constant(self) -> None:
         """Positive control: this pnl breaches the breaker at real equity only.
 
-        -7.0 USD against equity 1201.33 (R unit 3.0033) is -2.331R and
-        genuinely breaches daily_loss_limit_r -2.0; against the 10_000.0
-        constant (R unit 25.00) the same day is -0.28R and passes. Asserting
+        -14.0 USD against equity 1201.33 (bet R 12.0133 at the 1% measurement
+        size) is -1.165R and genuinely breaches the -1R daily cap; against the
+        10_000.0 constant (bet R 100.00) the same day is -0.14R and passes.
+        Asserting
         BOTH halves is what proves the stimulus is live rather than that an
         invariant happened to hold anyway.
         """
@@ -346,7 +348,7 @@ class TestSnapshotMarketState:
                 return []
 
             def daily_pnl_usd(self, start_ms: int, end_ms: int) -> float:
-                return -7.0
+                return -14.0
 
             def equity_usd(self) -> float | None:
                 return 1201.33
@@ -365,10 +367,10 @@ class TestSnapshotMarketState:
         )
 
         assert state.account is not None
-        assert state.account.daily_r == pytest.approx(-7.0 / (1201.33 * 0.0025))
-        assert state.account.daily_r <= -2.0
-        # the shipped behaviour would have been nowhere near the breaker:
-        # -7.0 / (10_000.0 * 0.0025) = -0.28R, well clear of -2.0. This is
+        assert state.account.daily_r == pytest.approx(-14.0 / (1201.33 * MEASUREMENT_F))
+        assert state.account.daily_r <= CardConfig().daily_loss_limit_r
+        # against the config constant it would be nowhere near the breaker:
+        # -14.0 / (10_000.0 * 0.01) = -0.14R, well clear of -1.0. This is
         # arithmetic on literals, not the system under test — it documents
         # the contrast, not a check of anything. The two asserts above are
         # the real positive control.
@@ -398,7 +400,41 @@ class TestSnapshotMarketState:
         )
 
         assert state.account is not None
-        assert state.account.daily_r == pytest.approx(-0.28)
+        assert state.account.daily_r == pytest.approx(-7.0 / (10_000.0 * MEASUREMENT_F))
+
+    def test_daily_r_is_measured_against_the_rebase_basis(self) -> None:
+        """#915 rule 1: a stored basis wins over live equity, so the breaker's
+        R does not shrink after each loss. Equity 1201.33 would give a
+        different R unit; the basis 1000.0 gives exactly -1.0R here."""
+
+        class LiveEquityProvider:
+            def positions(self) -> list:
+                return []
+
+            def daily_pnl_usd(self, start_ms: int, end_ms: int) -> float:
+                return -10.0
+
+            def equity_usd(self) -> float | None:
+                return 1201.33
+
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        sizing = SizingConfig(
+            bet_rule=BetSizingRule(basis_usd=1000.0, rebased_at="2026-10-01")
+        )
+        state = snapshot_market_state(
+            conn,
+            "BTCUSDT",
+            CardConfig(),
+            sizing,
+            now_ms=_NOW_MS,
+            account_provider=LiveEquityProvider(),
+            brief_fn=lambda _conn, cfg: _fake_bundle(cfg.symbols[0]),
+            targets_fn=lambda *a, **k: None,
+        )
+
+        assert state.account is not None
+        assert state.account.daily_r == pytest.approx(-1.0)
 
     def test_daily_r_degenerate_risk_unit_surfaces_a_health_note(self) -> None:
         """A non-positive risk unit fails open on the VALUE but not the SIGNAL.

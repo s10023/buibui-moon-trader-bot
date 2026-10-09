@@ -43,6 +43,7 @@ def _final(verdict: str, **card_overrides: Any) -> FinalCard:
         risk_frac=0.0025 if verdict == "TRADE" else None,
         capital_used=10_000.0 if verdict == "TRADE" else None,
         capital_source="config" if verdict == "TRADE" else None,
+        sizing_regime="measurement" if verdict == "TRADE" else None,
         rr_tp1=1.5 if verdict != "NO_TRADE" else None,
         rr_tp1_net=1.43 if verdict == "TRADE" else None,
         warnings=[],
@@ -103,6 +104,14 @@ class TestBody:
         assert "ENTRY" in pre and "STOP" in pre
         for token in ("100.0", "98.0", "103.0", "12.5"):
             assert token in pre, token
+
+    def test_risk_row_names_the_sizing_regime(self) -> None:
+        """#980: the phone card says which #915 regime sized the risk."""
+        body = card_telegram_body(_final("TRADE"))
+        pre = body[body.index("<pre>") : body.index("</pre>")]
+        risk_row = next(line for line in pre.splitlines() if "RISK" in line)
+        assert risk_row.endswith("measurement")
+        assert len(risk_row) <= 46
 
     def test_reasoning_prose_is_outside_every_pre_block(self) -> None:
         # The whole point of the layout: prose must be free to soft-wrap.

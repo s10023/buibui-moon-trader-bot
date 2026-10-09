@@ -34,6 +34,8 @@ def render_card(final: FinalCard) -> str:
             if final.capital_used is not None and final.capital_source is not None
             else ""
         )
+        if final.sizing_regime is not None:
+            capital_note = f"{capital_note}, {final.sizing_regime} size"
         lines.append(
             f"size: {final.size_units} units · notional "
             f"${final.notional_usd:.2f} · risk ${final.risk_usd:.2f} "

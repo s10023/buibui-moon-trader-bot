@@ -303,14 +303,22 @@ the card's own `generated_at_ms`). Wrapped by
   gross always. `round_trip_drag_r` (`portfolio/sizing.py`) is the ONE spelling —
   `Trade.pnl_r` is its origin and deliberately does NOT delegate, because it uses the
   split form, which is not bit-identical in floating point and generated every golden.
-- **Capital.** `portfolio.sizing.resolve_capital` returns live account equity when
-  available and the configured `[portfolio] capital` otherwise. Every card records
-  `capital_used` / `capital_source`, because a bare `risk_frac` is uninterpretable after the
-  fact once capital is live. The same resolved capital scales `daily_r`, so the daily
-  circuit breaker is measured in real R: against the old hardcoded constant a true −2R day
-  passed the gate as **−0.24R**. At ~$1,200 equity a BTCUSDT stop wider than roughly
-  2.7% VETOes for a sub-lot risk budget — the same capital wall the XS sleeve hits at
-  ~$1,000 minimum.
+- **Capital and R follow the #915 rule (#980).** `portfolio.sizing.resolve_bet_unit` gives
+  R = basis × f: the basis is `[bet_sizing] basis_usd` + `rebased_at`, equity at the last
+  SCHEDULED re-base, so R holds between re-bases instead of shrinking after each loss.
+  Unset, it falls back to `resolve_capital` (live equity, else `[portfolio] capital`) with
+  a warning that R is floating. f is the 1% measurement size until `[bet_sizing.unlock]`
+  names the evidence, then min(1/k, half-Kelly) from #914's streak table. A
+  BTC/ETH/SOL card is ONE leg of a cluster entry and takes R/3 whether or not the
+  siblings trade; a sub-lot leg VETOes as a skip and its share is never reallocated.
+  The same R scales `daily_r`, and the breaker fires at −1R. A new bet VETOes when open
+  risk — one R per open cluster entry, never per leg, plus this bet — exceeds a ceiling
+  in bet R: `[bet_sizing] open_risk_max_r`, else `[portfolio] r_open_max / 1%` (2R).
+  `r_open_max` stays a fraction of equity because the P1 replay still reads it that way;
+  only the card converts it. The cluster headroom check and the high-vol halving are
+  gone from the card path. Every card records
+  `capital_used` / `capital_source` / `sizing_regime` (`measurement` | `unlocked`),
+  because a bare `risk_frac` is uninterpretable without the basis and regime behind it.
 - **`--horizon intraday|swing`** sets the SCORING window the pundit-calls row is resolved
   against (48h vs 30d). It is stamped on `FinalCard`, so both ledgers read one value and
   cannot disagree. `swing` also drops 1h from the recent-fires scan and re-anchors the
