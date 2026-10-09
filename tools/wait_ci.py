@@ -50,7 +50,8 @@ Every guard here is a recorded scar, so none of them is decoration:
 * ⚠ **A run CANCELLED by a newer push is SUPERSEDED, not failed** (#878,
   2026-10-01). The branch gate pins main's head SHA at start; two Dependabot
   merges landed while it waited and GitHub cancelled the pinned run, while the
-  run on the new head was green. It was NOT `cancel-in-progress` (false on push):
+  run on the new head was green. It was NOT `cancel-in-progress` (false on push
+  until 2026-10-09; now true, so a running run is cancelled too, job and run):
   a concurrency group keeps one running and one PENDING run, and a newer push
   cancels the pending one before it creates any jobs — so the cancel shows on
   the RUN, never on a job, and a job-only check misses it (`was_cancelled`).
