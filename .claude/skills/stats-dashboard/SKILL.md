@@ -68,6 +68,13 @@ that raises silently disappears rather than failing the stats response.
 | ------ | ------------- | ------- |
 | Live Alert Outcomes | `GET /api/live-outcomes` → `compute_live_outcomes(conn, days, min_n, symbol)` | Reads the live `signal_alert_outcomes` ledger: roll-up (total/resolved/open, win/loss/expired), per-(strategy, tf, direction) win-rate + avg-R cells, per-strategy roll-up. **Aggregates across ALL symbols by default**, which is why it is neither cached nor in `StatsBundle`. Rendered by `components/LiveOutcomes.svelte`, which fetches for itself — `Stats.svelte` calls only `getStats`. A companion `GET /api/live-outcomes/open` serves open positions. Empty ledger is a valid state (zero roll-up, never raises) |
 
+⚠ **Era rule.** Live Alert Outcomes pools every alert in its `days` window across
+whatever signal-path rule changes fell inside it, and the card prints no era line.
+Before quoting one of its win rates or avg-R cells as a measurement of the current
+book, run `make buibui-portfolio-replay`, which prints the ledger-scope era check
+(`analytics.eras`, keyed on fire time), or name the window. The cached bundle cards
+describe price, not system performance, so the rule does not apply to them.
+
 **Why split three ways?** The cached bundle is safe to serve stale for a day. The live
 fields must reflect the current candle's position, so they bypass the cache. Live Alert
 Outcomes is cross-symbol, so it does not fit a bundle keyed by `(symbol, days, date)` at

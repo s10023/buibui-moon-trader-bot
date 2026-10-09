@@ -7,16 +7,18 @@
     createSeriesMarkers,
     HistogramSeries,
     LineSeries,
+    LineStyle,
     type CandlestickData,
     type HistogramData,
     type IChartApi,
     type ISeriesApi,
     type ISeriesMarkersPluginApi,
+    type IPriceLine,
     type LineData,
     type SeriesMarker,
     type Time,
   } from "lightweight-charts";
-  import type { CandleRow, FundingRow, OiRow, SignalRow, ZonesResponse } from "../api";
+  import type { CandleRow, FundingRow, LocationResponse, OiRow, SignalRow, VwapAnchor, VwapPoint, ZonesResponse } from "../api";
   import { getLiveCandle } from "../api";
   import { pricesStore, startPricesSSE, stopPricesSSE } from "../stores/prices";
 
@@ -70,6 +72,11 @@
     showFibZone = false,
     showOTE = false,
     showSwings = false,
+    location = null,
+    showVWAPDay = false,
+    showVWAPWeek = false,
+    showVWAPMonth = false,
+    showProfile = false,
   }: {
     candles: CandleRow[];
     signals: SignalRow[];
@@ -93,6 +100,11 @@
     showFibZone?: boolean;
     showOTE?: boolean;
     showSwings?: boolean;
+    location?: LocationResponse | null;
+    showVWAPDay?: boolean;
+    showVWAPWeek?: boolean;
+    showVWAPMonth?: boolean;
+    showProfile?: boolean;
   } = $props();
 
   let container: HTMLDivElement;
@@ -109,6 +121,11 @@
 
   // RSI series
   let rsiSeries: ISeriesApi<"Line"> | null = null;
+
+  // Location overlay (#822) — anchored VWAP + volume-profile levels.
+  // Display only, never a gate: nothing here feeds a detector or a size.
+  let vwapSeries: Partial<Record<VwapAnchor, ISeriesApi<"Line">>> = {};
+  let profileLines: IPriceLine[] = [];
 
   // Range level series (C11)
   let rangeSeries: ISeriesApi<"Line">[] = [];
@@ -193,6 +210,35 @@
       result.push(rsi(avgGain, avgLoss));
     }
     return result;
+  }
+
+  // ── Location overlay (#822) ──────────────────────────────────────────────────
+
+  const VWAP_STYLE: Record<VwapAnchor, { title: string; lineStyle: LineStyle; lineWidth: 1 | 2 }> = {
+    day:   { title: "VWAP D", lineStyle: LineStyle.Dotted, lineWidth: 1 },
+    week:  { title: "VWAP W", lineStyle: LineStyle.Dashed, lineWidth: 1 },
+    month: { title: "VWAP M", lineStyle: LineStyle.Solid,  lineWidth: 2 },
+  };
+  const VWAP_COLOR = "#39c5cf";
+  const PROFILE_COLOR = "#d2a8ff";
+
+  // lightweight-charts strokes the segment i→i+1 in point i's colour, so making
+  // the LAST point of each anchored window transparent hides the jump into the
+  // next window: the line visibly resets at every day / week / month anchor.
+  function vwapLineData(points: VwapPoint[]): LineData[] {
+    return points.map((p, i) => {
+      const d: LineData = { time: (p.time_ms / 1000) as Time, value: p.value };
+      const next = points[i + 1];
+      if (next && next.anchor_ms !== p.anchor_ms) d.color = "transparent";
+      return d;
+    });
+  }
+
+  function clearProfileLines(): void {
+    for (const line of profileLines) {
+      try { candleSeries?.removePriceLine(line); } catch { /* already removed */ }
+    }
+    profileLines = [];
   }
 
   // ── Range levels (C11) ───────────────────────────────────────────────────────
@@ -781,6 +827,21 @@
       title: "EMA200",
     });
 
+    // Anchored VWAP overlays (#822) — on main price scale, empty until toggled
+    for (const anchor of ["day", "week", "month"] as const) {
+      const style = VWAP_STYLE[anchor];
+      vwapSeries[anchor] = chart.addSeries(LineSeries, {
+        color: VWAP_COLOR,
+        lineWidth: style.lineWidth,
+        lineStyle: style.lineStyle,
+        priceScaleId: "right",
+        lastValueVisible: true,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+        title: style.title,
+      });
+    }
+
     // RSI sub-panel
     rsiSeries = chart.addSeries(LineSeries, {
       color: "#e3b341",
@@ -980,6 +1041,47 @@
     rsiSeries.setData(data);
     // Give RSI panel a visible height
     chart.priceScale("rsi").applyOptions({ scaleMargins: { top: 0.75, bottom: 0.02 } });
+  });
+
+  // ── Location overlay effects (#822) ─────────────────────────────────────────
+
+  $effect(() => {
+    const shown: Record<VwapAnchor, boolean> = {
+      day: showVWAPDay,
+      week: showVWAPWeek,
+      month: showVWAPMonth,
+    };
+    const byAnchor = new Map((location?.vwap ?? []).map((s) => [s.anchor, s.points]));
+    for (const anchor of ["day", "week", "month"] as const) {
+      const series = vwapSeries[anchor];
+      if (!series) continue;
+      const points = byAnchor.get(anchor);
+      series.setData(shown[anchor] && points ? vwapLineData(points) : []);
+    }
+  });
+
+  $effect(() => {
+    if (!candleSeries) return;
+    clearProfileLines();
+    const profile = location?.profile;
+    if (!showProfile || !profile) return;
+    const levels: [string, number, LineStyle][] = [
+      ["POC", profile.poc, LineStyle.Solid],
+      ["VAH", profile.vah, LineStyle.Dashed],
+      ["VAL", profile.val, LineStyle.Dashed],
+    ];
+    for (const [title, price, lineStyle] of levels) {
+      profileLines.push(
+        candleSeries.createPriceLine({
+          price,
+          title,
+          color: PROFILE_COLOR,
+          lineWidth: 1,
+          lineStyle,
+          axisLabelVisible: true,
+        }),
+      );
+    }
   });
 
   // ── Range levels effect (C11) ────────────────────────────────────────────────

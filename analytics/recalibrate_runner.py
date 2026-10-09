@@ -4,12 +4,14 @@ No business logic here. All logic lives in recalibrate_lib.py.
 """
 
 import argparse
+from collections.abc import Callable
 from pathlib import Path
 
 import duckdb
 
 from analytics.data_store import DEFAULT_DB_PATH, init_schema
 from analytics.db_retry import connect_with_retry
+from analytics.eras import EraBoundary, load_boundaries, straddle_report
 from analytics.recalibrate_lib import (
     PruneThresholdExceeded,
     UnratedPruneThresholdExceeded,
@@ -21,6 +23,7 @@ from analytics.recalibrate_lib import (
     prune_stale_ratings,
     prune_undeclared_ratings,
     prune_unrated_ratings,
+    sample_run_times,
     write_confidence_to_db,
     write_confidence_to_source,
 )
@@ -29,11 +32,47 @@ from analytics.strategies import STRATEGY_REGISTRY
 
 _REGISTRY_PATH = Path(__file__).parent / "strategies" / "_registry.py"
 
+BoundaryLoader = Callable[[], list[EraBoundary]]
+
+
+def _backtest_boundaries() -> list[EraBoundary]:
+    return load_boundaries(scopes=("backtest",))
+
+
+def era_check_lines(
+    conn: duckdb.DuckDBPyConnection,
+    day_filter: str | None,
+    adr_suppress_threshold: float | None,
+    loader: BoundaryLoader = _backtest_boundaries,
+) -> list[str]:
+    """Era check for the run pool the stars above were computed from.
+
+    Keyed on ``run_at_ms`` through :func:`sample_run_times`, the same pool and the
+    same key the decay review uses, never ``entry_time`` (see ``analytics.eras``).
+
+    A loader failure prints NOT RUN instead of raising. The decay review fails
+    loudly because it is a read-only audit; recalibrate sits inside ``make
+    db-update``, and a git hiccup there would block the ratings refresh over a
+    line that writes nothing. NOT RUN is still never an empty answer, so a
+    failure cannot read as a CLEAN sample.
+    """
+    try:
+        boundaries = loader()
+    except (OSError, RuntimeError, ValueError) as exc:
+        return [
+            f"  era check: NOT RUN — boundaries failed to load ({exc}); this "
+            "report makes no claim about whether the pool spans a rule change."
+        ]
+    return straddle_report(
+        boundaries, sample_run_times(conn, day_filter, adr_suppress_threshold)
+    )
+
 
 def run(
     args: argparse.Namespace,
     db_path: Path = DEFAULT_DB_PATH,
     source_path: Path = _REGISTRY_PATH,
+    boundary_loader: BoundaryLoader = _backtest_boundaries,
 ) -> None:
     """Open DB, compute recalibrated ratings, print report.
 
@@ -93,6 +132,16 @@ def run(
             dsr_ratings=dsr_ratings,
         )
         print(report)
+        print(
+            "\n  Era check — the stars above pool runs saved under these rule changes:"
+        )
+        print(
+            "\n".join(
+                era_check_lines(
+                    conn, day_filter, adr_suppress_threshold, boundary_loader
+                )
+            )
+        )
 
         if apply:
             if not new_ratings:

@@ -663,7 +663,7 @@ is frozen. A claim that just restates one of these candlestick/structure pattern
 - **Indicator CHARACTER — RSI / Stoch RSI / MACD / TD Sequential / oscillator
   readings, overbought-oversold magnitude, and momentum DIVERGENCE of every kind
   (regular or hidden, bullish or bearish): H8 returned NO, and the amendment kept
-  character at NO** while adding price *location* as the half that gates. ⚠ **This
+  character at NO**; its price-*location* half was look-ahead and is withdrawn (#952). ⚠ **This
   bullet exists because the frozen list above contains NO oscillator**, so an
   RSI-divergence post reads as `NOVEL` to anyone classifying from the frozen list
   alone — and it is one of the most common shapes in this corpus (2 of 5 bundles on

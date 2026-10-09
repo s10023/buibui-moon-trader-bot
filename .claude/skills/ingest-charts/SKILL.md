@@ -1,17 +1,11 @@
 ---
 name: ingest-charts
 description: >
-  Ingest Coinglass / MMT heatmap + liquidation-map screenshots (dropped by
-  hand, or captured by tools/coinglass_capture.sh) from
-  docs/plans/chart-drops/ into verified external-context
-  JSON for the daily Brief (M3). Scans via tools/chart_drops.py (sha256
-  dedup ledger), vision-extracts each image in a per-image chart-extract subagent
-  (image bytes never enter main context), presents ONE consolidated review
-  digest for the whole batch, and writes docs/plans/external-context/*.json
-  ONLY after the operator approves — verified:true is the only on-disk
-  state. Invoke when the user says "/ingest-charts", "ingest my chart
-  drops", or has dropped new heatmap screenshots. Spec:
-  docs/superpowers/specs/2026-07-14-m3-external-context-design.md.
+  Ingest Coinglass / MMT heatmap and liquidation-map screenshots from
+  docs/plans/chart-drops/ into verified external-context JSON for the daily
+  Brief (M3), behind ONE review digest for the whole batch; nothing is written
+  until the operator approves. Invoke when the user says "/ingest-charts",
+  "ingest my chart drops", or has dropped new heatmap screenshots.
 ---
 
 # /ingest-charts — chart drops → verified external-context JSON

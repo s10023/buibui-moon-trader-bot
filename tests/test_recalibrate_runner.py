@@ -11,12 +11,14 @@ they exercise compute -> write -> prune as one chain.
 """
 
 import argparse
+from collections.abc import Callable
 from pathlib import Path
 
 import duckdb
 import pytest
 
 from analytics import recalibrate_runner
+from analytics.eras import EraBoundary
 from analytics.store import init_schema
 
 
@@ -27,6 +29,7 @@ def _insert_run(
     tf: str,
     avg_r: float,
     closed_trades: int,
+    run_at_ms: int = 1000,
 ) -> None:
     """One backtest_runs row carrying only the fields recalibrate reads.
 
@@ -41,7 +44,7 @@ def _insert_run(
         "closed_trades, win_count, loss_count, win_rate, avg_r, total_r, "
         "max_drawdown_r, run_at_ms) "
         "VALUES (?, 'BTCUSDT', ?, ?, 0, 1, 90, 0.02, 2.0, 0.0005, 'tue_thu', 1, "
-        "?, ?, ?, ?, 0.5, ?, ?, 1.0, 1000)",
+        "?, ?, ?, ?, 0.5, ?, ?, 1.0, ?)",
         [
             run_id,
             tf,
@@ -52,6 +55,7 @@ def _insert_run(
             closed_trades - closed_trades // 2,
             avg_r,
             avg_r * closed_trades,
+            run_at_ms,
         ],
     )
 
@@ -79,10 +83,29 @@ def _cells(db: Path) -> set[tuple[str, str, str]]:
     return {(str(r[0]), str(r[1]), str(r[2])) for r in rows}
 
 
-def _run(db: Path, cfg: Path) -> None:
+def _no_boundaries() -> list[EraBoundary]:
+    return []
+
+
+def _run(
+    db: Path,
+    cfg: Path,
+    loader: Callable[[], list[EraBoundary]] = _no_boundaries,
+) -> None:
     recalibrate_runner.run(
         argparse.Namespace(apply=True, min_trades=10, config=str(cfg)),
         db_path=db,
+        boundary_loader=loader,
+    )
+
+
+def _boundary(ts_ms: int) -> EraBoundary:
+    return EraBoundary(
+        ts_ms=ts_ms,
+        label="feat: a rule change",
+        scope="backtest",
+        source="git",
+        ref="abc1234",
     )
 
 
@@ -151,3 +174,74 @@ def test_runner_refuses_the_prune_without_deleting_when_the_pool_collapses(
     _run(db, cfg)
     assert len(_cells(db)) == 30
     assert "SKIPPED unrated-rating prune" in capsys.readouterr().out
+
+
+def test_runner_prints_the_era_check_for_the_rated_pool(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Two rated runs saved either side of a boundary straddle it, and the report
+    says so beside the stars rather than leaving the reader to assume one era.
+
+    Mutation that must fail this: drop the era-check print from ``run()``.
+    """
+    db = tmp_path / "analytics.db"
+    cfg = _config(tmp_path, ["fvg", "bos"])
+    conn = duckdb.connect(str(db))
+    init_schema(conn)
+    _insert_run(conn, "r1", "fvg", "1h", 0.4, 40, run_at_ms=1_000)
+    _insert_run(conn, "r2", "bos", "4h", 0.3, 40, run_at_ms=3_000)
+    conn.close()
+
+    _run(db, cfg, loader=lambda: [_boundary(2_000)])
+    out = capsys.readouterr().out
+    assert "Era check" in out
+    assert "STRADDLES 1 boundaries" in out
+
+
+def test_runner_era_check_reads_the_rated_pool_not_every_saved_run(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A superseded run is not in the pool the stars came from, so a boundary
+    that only it sits behind must not be reported as straddled.
+
+    Mutation that must fail this: key the check on every ``backtest_runs`` row
+    instead of :func:`sample_run_times`.
+    """
+    db = tmp_path / "analytics.db"
+    cfg = _config(tmp_path, ["fvg"])
+    conn = duckdb.connect(str(db))
+    init_schema(conn)
+    _insert_run(conn, "old", "fvg", "1h", 0.4, 40, run_at_ms=500)
+    _insert_run(conn, "new", "fvg", "1h", 0.4, 40, run_at_ms=1_000)
+    conn.close()
+
+    _run(db, cfg, loader=lambda: [_boundary(700)])
+    out = capsys.readouterr().out
+    assert "era check: CLEAN" in out
+    assert "STRADDLES" not in out
+
+
+def test_runner_era_check_failure_prints_not_run_and_still_applies(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A git failure must neither read as CLEAN nor block the ratings write.
+
+    Mutations that must fail this: let the loader's exception propagate (the
+    apply never happens), or return ``[]`` on failure (prints CLEAN).
+    """
+
+    def broken() -> list[EraBoundary]:
+        raise RuntimeError("git exited 128: not a git repository")
+
+    db = tmp_path / "analytics.db"
+    cfg = _config(tmp_path, ["fvg"])
+    conn = duckdb.connect(str(db))
+    init_schema(conn)
+    _insert_run(conn, "r1", "fvg", "1h", 0.4, 40)
+    conn.close()
+
+    _run(db, cfg, loader=broken)
+    out = capsys.readouterr().out
+    assert "era check: NOT RUN" in out
+    assert "CLEAN" not in out
+    assert _cells(db) == {("fvg", "1h", "combined")}

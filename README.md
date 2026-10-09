@@ -620,13 +620,14 @@ is a read-only audit that tags every historical trade with the M1 brief-indicato
 state (EMA stack/slope, regime, Bollinger, anchored-VWAP distance, volume-profile
 value-area, price-action character, Monday-range) that held at its entry, then
 emits a BUILD / AVOID / NO-EDGE / INSUFFICIENT verdict per (indicator-state ×
-direction) — verdict `docs/audits/2026-07-24-h8-m1-indicator-conditioning.md`.
+direction) — verdict `docs/audits/2026-10-08-h8-a31-causal-tagger-rerun.md`, which supersedes
+the 2026-07-24 H8 audit: its price-location effect was look-ahead (#952).
 
 `make buibui-occurrence-dump` (`tools/occurrence_dump.py`) is a read-only
 diagnostic that dumps one row per strategy fire together with the M1 indicator
 state that held at its entry, so the conditions separating good fires from bad
 are visible per strategy rather than pooled. It emits **no verdict**:
-conditioning axes are 6-for-6-plus-one-amended NO in this repo and the 1d
+conditioning axes are 7-for-7 with no buildable edge in this repo and the 1d
 timeframe alone yields 757 cells, so a gated search over them is unreachable by
 trial count — the tool prints that cell count rather than asserting the point.
 Scope with `TF=` for runtime (15m is ~4h); an unscoped run is still
@@ -774,6 +775,11 @@ poetry run python buibui.py recalibrate --min-trades 20 --apply
 signal watch loads these at startup so each TOML config uses its own calibrated stars.
 When the active config's `day_filter` changes between runs, recalibrate's stale-row
 pruner removes ratings written under the previous scope so the daemon never reads zombies.
+
+Under the report, recalibrate prints an **era check** (`analytics.eras`, backtest scope): how
+many rule changes the rated pool straddles, keyed on each run's `run_at_ms`, and the largest
+single-era sub-sample. `NOT RUN` means git or `config/eras.toml` failed to load, which is not
+the same as `CLEAN`, and it never blocks `--apply`.
 
 A second pruner removes rows for cells the config **no longer declares**. Without it
 nothing ever did: the upsert only inserts-or-replaces, so a dropped cell kept its stars
@@ -1302,6 +1308,7 @@ SSE stream endpoints accept `?token=<API_TOKEN>` query param instead (browser `E
 | `GET` | `/api/live-outcomes` | Cross-symbol roll-up of fired-alert outcomes from `signal_alert_outcomes` (win/loss/avg-R per strategy×tf×direction, both the per-strategy and per-cell groupings also carrying win/loss/expired counts; optional `symbol` query param scopes the roll-up to one symbol) |
 | `GET` | `/api/live-outcomes/open` | Unresolved alerts marked to the live price (`?symbol=`); degrades to `marks_ok=false` with null price columns when the price feed is unavailable |
 | `GET` | `/api/zones` | Structural zones for a symbol+timeframe (FVG, OB, EQH/EQL, BOS, Fib, OTE, swings) |
+| `GET` | `/api/location` | Chart location overlay for a symbol+timeframe: day/week/month anchored-VWAP series and 60-day volume-profile POC/VAH/VAL. Display only, never a gate |
 
 **CORS:** Defaults to `http://localhost:5173` (Vite dev server). Override with `CORS_ORIGINS` env var (comma-separated). If you change `DEV_PORT`, update `CORS_ORIGINS` accordingly (e.g. `CORS_ORIGINS=http://localhost:3000`).
 
@@ -1321,7 +1328,7 @@ SSE stream endpoints accept `?token=<API_TOKEN>` query param instead (browser `E
 A single-page trading terminal UI. Dark theme, no component library, no SSR.
 Pages: Chart (candlesticks + signal markers + structural zone overlays), Backtest (DB-backed sortable/filterable results table + collapsible run form), Signal Feed (poll + filters), Positions (SSE), Prices (SSE).
 
-Chart overlays include EMA 20/50/200, RSI sub-panel, Range Levels (MO/DO/WO + PDH/PDL/PWH/PWL/Mon H·L), CME Gap (15m/1h only), Fibonacci retracement, and **Structural Zones** (7 toggles: FVG boxes, Order Block boxes, EQH·EQL lines, BOS levels, Fib Golden Zone box, OTE box, swing pivot dots — powered by `GET /api/zones`).
+Chart overlays include EMA 20/50/200, RSI sub-panel, Range Levels (MO/DO/WO + PDH/PDL/PWH/PWL/Mon H·L), CME Gap (15m/1h only), Fibonacci retracement, and **Structural Zones** (7 toggles: FVG boxes, Order Block boxes, EQH·EQL lines, BOS levels, Fib Golden Zone box, OTE box, swing pivot dots — powered by `GET /api/zones`), and a **Location** row (VWAP Day / Week / Month anchored at 00:00 UTC, Monday 00:00 UTC and the 1st, with VWAP Day hidden on 1d; plus the 60-day volume-profile POC and value area over closed 1h bars — powered by `GET /api/location`). Every Location toggle starts OFF. The overlay is display only and never gates, sizes or suppresses anything; `tests/test_chart_location.py` fails if a detector, gate, sizing or execution module imports it.
 
 ```bash
 # Install frontend dependencies (first time)

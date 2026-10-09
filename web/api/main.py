@@ -21,6 +21,7 @@ from web.api.routers import (
     config,
     fib,
     live_outcomes,
+    location,
     ohlcv,
     positions,
     prices,
@@ -124,6 +125,7 @@ for module in (
     stats,
     stream,
     zones,
+    location,
     live_outcomes,
     brief,
 ):

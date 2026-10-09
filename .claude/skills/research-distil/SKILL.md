@@ -3,15 +3,12 @@ name: research-distil
 effort: high
 description: >
   Distil books, GitHub repos and papers into AT MOST THREE power-priced,
-  pre-registered hypotheses per run, routed into the existing thesis-inbox /
-  mechanics-backlog intake behind ONE human review gate. Four gates reject on
-  novelty (a filed no-edge verdict), new-information (a re-slice of held
-  price/order-flow is 7-for-7 dead), power (must RUN tools/distil_power.py,
-  never estimate) and cost (net of the modelled drag). "Unreachable, do not
+  pre-registered hypotheses per run, routed into the thesis-inbox /
+  mechanics-backlog intake behind ONE human review gate. "Unreachable, do not
   build" is a SUCCESSFUL output. Invoke when the user says "/research-distil",
   points at a book-to-skill slug, names a repo or paper to mine, asks "what
   should we test from this book", or wants research turned into a testable
-  hypothesis. Spec: docs/superpowers/specs/2026-08-14-research-distil-design.md.
+  hypothesis.
 ---
 
 # Research distil
@@ -105,7 +102,7 @@ trading book will suggest most of these. Authority: `project_do_not_relitigate.m
 | Weekend / day-of-week removal | FAILS, DSR 0.672; effective n is 21 book-days |
 | HTF agreement as a filter | INVERTED — it is a counter-trend book |
 | Reference-level proximity triggers | NO-EDGE |
-| Conditioning axes (regime, session, combo, direction) | 6-for-6-plus-one-amended |
+| Conditioning axes (regime, session, combo, direction, H8 M1) | 7-for-7, no buildable edge; H8's amendment was look-ahead (#952) |
 | Coinbase premium (H14), USD/JPY carry (H15) | NO-EDGE, both genuinely new sources |
 | XS reversal | −2.9, negative even at zero cost |
 | EWMAC regime attribution | NO |
