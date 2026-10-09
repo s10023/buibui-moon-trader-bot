@@ -311,7 +311,12 @@ the card's own `generated_at_ms`). Wrapped by
   names the evidence, then min(1/k, half-Kelly) from #914's streak table. A
   BTC/ETH/SOL card is ONE leg of a cluster entry and takes R/3 whether or not the
   siblings trade; a sub-lot leg VETOes as a skip and its share is never reallocated.
-  The same R scales `daily_r`, and the breaker fires at −1R. Every card records
+  The same R scales `daily_r`, and the breaker fires at −1R. A new bet VETOes when open
+  risk — one R per open cluster entry, never per leg, plus this bet — exceeds a ceiling
+  in bet R: `[bet_sizing] open_risk_max_r`, else `[portfolio] r_open_max / 1%` (2R).
+  `r_open_max` stays a fraction of equity because the P1 replay still reads it that way;
+  only the card converts it. The cluster headroom check and the high-vol halving are
+  gone from the card path. Every card records
   `capital_used` / `capital_source` / `sizing_regime` (`measurement` | `unlocked`),
   because a bare `risk_frac` is uninterpretable without the basis and regime behind it.
 - **`--horizon intraday|swing`** sets the SCORING window the pundit-calls row is resolved

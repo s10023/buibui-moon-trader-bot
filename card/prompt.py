@@ -13,7 +13,9 @@ from card.state import MarketState
 # breaker it feeds sits at -1R rather than -2R. A PAYLOAD break only: the
 # rubric is byte-identical to v8 and the emitted schema is unchanged, so
 # `card-place` is unaffected. `FinalCard` gains `sizing_regime`, which the
-# post-pass writes and the model never sees.
+# post-pass writes and the model never sees; the post-pass also vetoes a bet
+# past the open-risk ceiling, now counted in bet R (`r_open_max` / 1% = 2R by
+# default) rather than as one r_base per open position.
 #
 # card-v8 (2026-10-08, #821): the card emits `confluence_inputs`, one
 # {input, evidence} entry per agreeing input, so the one-external-input cap is

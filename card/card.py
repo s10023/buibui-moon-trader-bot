@@ -16,6 +16,8 @@ from portfolio.sizing import (
     SizingConfig,
     basket_legs,
     leg_share_usd,
+    open_risk_ceiling_r,
+    open_risk_r,
     resolve_bet_unit,
     risk_per_unit,
     round_trip_drag_r,
@@ -322,7 +324,10 @@ def post_pass(
     A card on a cluster member is one leg of a cluster entry: it takes
     R / len(cluster), whether or not the siblings trade, so a sibling's
     sub-lot skip is never reallocated here. A leg whose share floors to zero
-    at `qty_step` is skipped (VETOED, naming rule 3), never sized up.
+    at `qty_step` is skipped (VETOED, naming rule 3), never sized up. Open
+    risk is counted as one R per open cluster entry plus this bet and vetoes
+    past `open_risk_ceiling_r` (the account rows carry no stop, so each entry
+    counts its full R).
 
     `capital_used` / `capital_source` / `sizing_regime` are recorded on the
     returned `FinalCard` (`None` on a VETO) because `risk_frac` is only
@@ -397,6 +402,22 @@ def post_pass(
                 veto.append(
                     f"daily loss {state.account.daily_r:.2f}R breaches "
                     f"circuit breaker {cfg.daily_loss_limit_r}R"
+                )
+            # (c2) cross-symbol open-risk ceiling (operator ruling on #980):
+            # one R per open cluster entry plus this bet, never one per leg.
+            open_r = open_risk_r(
+                [p.symbol for p in state.account.positions], state.symbol, sizing
+            )
+            ceiling_r = open_risk_ceiling_r(sizing)
+            if open_r > ceiling_r:
+                veto.append(
+                    f"open risk {open_r}R (open cluster entries plus this bet) "
+                    f"exceeds the {ceiling_r:g}R ceiling (r_open_max)"
+                )
+            if state.account.positions:
+                warnings.append(
+                    "open risk counted as one R per open cluster entry — "
+                    "account rows carry no stop"
                 )
         else:
             warnings.append("account state unavailable — hard rules unverified")

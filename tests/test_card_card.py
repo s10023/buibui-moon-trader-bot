@@ -675,6 +675,57 @@ class TestBetSizingRule:
         assert _post(_trade_obj(), _state_for_post(account=under)).verdict == "TRADE"
 
 
+def _long(symbol: str) -> OpenPosition:
+    return OpenPosition(
+        symbol=symbol, side="long", qty=1.0, entry=100.0, mark=100.0, upnl_usd=0.0
+    )
+
+
+def _account(*symbols: str) -> AccountState:
+    return AccountState(
+        positions=[_long(s) for s in symbols],
+        daily_pnl_usd=0.0,
+        daily_r=0.0,
+        equity_usd=None,
+    )
+
+
+class TestOpenRiskCeiling:
+    """Operator ruling on #980: a cross-symbol ceiling on open risk, in bet R,
+    defaulting to `r_open_max` (2% of equity) at the 1% measurement size = 2R."""
+
+    def test_bet_past_the_ceiling_vetoes(self) -> None:
+        """Two open single-symbol bets plus this one is 3R > 2R."""
+        final = _post(
+            _trade_obj(), _state_for_post(account=_account("DOGEUSDT", "XRPUSDT"))
+        )
+        assert final.verdict == "VETOED"
+        assert any("exceeds the 2R ceiling" in r for r in final.veto_reasons)
+        assert final.risk_usd is None
+
+    def test_bet_that_fits_is_not_vetoed(self) -> None:
+        """One open bet plus this one is 2R, exactly at the ceiling."""
+        final = _post(_trade_obj(), _state_for_post(account=_account("DOGEUSDT")))
+        assert final.verdict == "TRADE"
+        assert final.risk_usd == pytest.approx(100.0 / 3)
+
+    def test_open_cluster_entry_counts_as_one_r_not_one_per_leg(self) -> None:
+        """ETH + SOL legs are ONE open bet. Counted per leg, ETH + SOL + DOGE +
+        this BTC card would read 4R and veto; as entries it is 2R and trades."""
+        final = _post(
+            _trade_obj(),
+            _state_for_post(account=_account("ETHUSDT", "SOLUSDT", "DOGEUSDT")),
+        )
+        assert final.verdict == "TRADE"
+
+    def test_explicit_ceiling_in_r_wins(self) -> None:
+        sizing = SizingConfig(bet_rule=BetSizingRule(open_risk_max_r=1.0))
+        final = _post(
+            _trade_obj(), _state_for_post(account=_account("DOGEUSDT")), sizing=sizing
+        )
+        assert any("exceeds the 1R ceiling" in r for r in final.veto_reasons)
+
+
 class TestValidUntilExpiry:
     """A card generated after its own valid_until is expired on arrival
     (observed 2026-08-04: emitted 14:13Z, valid until 13:20Z)."""

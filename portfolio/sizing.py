@@ -133,8 +133,17 @@ class BetSizingRule:
     basis_usd: float | None = None
     rebased_at: str | None = None
     unlock: BookUnlock | None = None
+    open_risk_max_r: float | None = None
+    """Ceiling on open risk, in bet R, that a new bet may not push past.
+
+    None derives it from `[portfolio] r_open_max` (see `open_risk_ceiling_r`).
+    """
 
     def __post_init__(self) -> None:
+        if self.open_risk_max_r is not None:
+            _require_number(
+                "bet_sizing.open_risk_max_r", self.open_risk_max_r, allow_zero=True
+            )
         if (self.basis_usd is None) != (self.rebased_at is None):
             raise ValueError(
                 "[bet_sizing] basis_usd and rebased_at are set together: a basis "
@@ -165,7 +174,7 @@ class BetSizingRule:
         """Build from a TOML `[bet_sizing]` table; unknown keys raise."""
         if not isinstance(block, dict):
             raise ValueError("[bet_sizing] must be a TOML table")
-        unknown = set(block) - {"basis_usd", "rebased_at", "unlock"}
+        unknown = set(block) - {"basis_usd", "rebased_at", "unlock", "open_risk_max_r"}
         if unknown:
             raise ValueError(f"[bet_sizing] unknown keys: {sorted(unknown)}")
         unlock_block = block.get("unlock")
@@ -195,6 +204,7 @@ class BetSizingRule:
             basis_usd=block.get("basis_usd"),
             rebased_at=rebased_at,
             unlock=unlock,
+            open_risk_max_r=block.get("open_risk_max_r"),
         )
 
 
@@ -707,6 +717,36 @@ def leg_share_usd(r_usd: float, n_legs: int) -> float:
     if n_legs < 1:
         raise ValueError(f"n_legs must be >= 1, got {n_legs}")
     return r_usd / n_legs
+
+
+def open_risk_ceiling_r(cfg: SizingConfig) -> float:
+    """The cap on open risk across all positions, in bet R (#980 follow-up).
+
+    `r_open_max` is a fraction of equity, and the P1 replay still reads it as
+    one, so it is NOT redefined. The card converts it at the measurement size:
+    `r_open_max / MEASUREMENT_F`, i.e. 2R at the shipped 2%, which is the same
+    dollar ceiling the old card enforced. `[bet_sizing] open_risk_max_r` sets
+    the R count directly and wins; the R count holds when a book unlocks,
+    where a fraction of equity would fall below one bet.
+    """
+    rule = cfg.bet_rule
+    if rule.open_risk_max_r is not None:
+        return float(rule.open_risk_max_r)
+    return cfg.r_open_max / MEASUREMENT_F
+
+
+def open_risk_r(open_symbols: Sequence[str], new_symbol: str, cfg: SizingConfig) -> int:
+    """Open risk in bet R once a bet on `new_symbol` is added.
+
+    One R per distinct cluster entry: the open legs of one BTC/ETH/SOL basket
+    are one bet, and a card on a cluster that is already open is a leg of that
+    entry, not a second R (sequential baskets on one move are what the 1R
+    daily cap backstops). Account rows carry no stop, so each entry is counted
+    at its full R, never at its actual distance to stop.
+    """
+    clusters = {cluster_of(s, cfg) for s in open_symbols}
+    clusters.add(cluster_of(new_symbol, cfg))
+    return len(clusters)
 
 
 def size_leg(

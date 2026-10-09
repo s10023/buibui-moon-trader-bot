@@ -22,6 +22,8 @@ from portfolio.sizing import (
     basket_legs,
     half_kelly,
     leg_share_usd,
+    open_risk_ceiling_r,
+    open_risk_r,
     p_losing_run_at_least,
     resolve_bet_unit,
     round_trip_drag_r,
@@ -187,6 +189,24 @@ class TestBasket:
         assert sum(skipped) == pytest.approx(20.0)  # BTC's 10 left unused
 
 
+class TestOpenRisk:
+    def test_default_ceiling_is_r_open_max_at_the_measurement_size(self) -> None:
+        cfg = SizingConfig()
+        assert open_risk_ceiling_r(cfg) == pytest.approx(cfg.r_open_max / MEASUREMENT_F)
+        assert open_risk_ceiling_r(cfg) == pytest.approx(2.0)
+
+    def test_explicit_ceiling_wins(self) -> None:
+        cfg = SizingConfig(bet_rule=BetSizingRule(open_risk_max_r=3.0))
+        assert open_risk_ceiling_r(cfg) == 3.0
+
+    def test_one_r_per_cluster_entry(self) -> None:
+        cfg = SizingConfig()
+        assert open_risk_r([], "BTCUSDT", cfg) == 1
+        assert open_risk_r(["ETHUSDT", "SOLUSDT"], "BTCUSDT", cfg) == 1
+        assert open_risk_r(["ETHUSDT", "DOGEUSDT"], "BTCUSDT", cfg) == 2
+        assert open_risk_r(["DOGEUSDT", "XRPUSDT"], "BTCUSDT", cfg) == 3
+
+
 class TestConfig:
     def test_from_toml(self, tmp_path: Path) -> None:
         p = tmp_path / "s.toml"
@@ -218,6 +238,7 @@ class TestConfig:
             '[bet_sizing]\nbasis_usd = 1000.0\nrebased_at = "soon"\n',
             "[bet_sizing]\nbasis_usd = -5.0\nrebased_at = 2026-10-01\n",
             "[bet_sizing]\nbasis = 1000.0\n",  # unknown key
+            "[bet_sizing]\nopen_risk_max_r = -1.0\n",
             '[bet_sizing.unlock]\nevidence = "x"\nwins = 70\nn = 60\n'
             "rr_gross = 2.0\nstop_pct = 0.02\n",  # wins > n
             '[bet_sizing.unlock]\nevidence = ""\nwins = 1\nn = 60\n'
