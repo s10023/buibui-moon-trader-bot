@@ -12,6 +12,7 @@ from analytics.data_store import (
     get_directional_confidence_ratings,
     init_schema,
 )
+from analytics.eras import DetectorFloor, detector_floors
 from analytics.recalibrate_lib import (
     MIN_DSR_SD,
     PruneThresholdExceeded,
@@ -25,11 +26,23 @@ from analytics.recalibrate_lib import (
     prune_stale_ratings,
     prune_undeclared_ratings,
     prune_unrated_ratings,
+    select_rated_run_ids,
     win_rate_to_stars,
     write_confidence_to_db,
     write_confidence_to_source,
 )
 from analytics.signal_config import SignalWatchConfig
+
+
+@pytest.fixture(autouse=True)
+def _no_detector_floors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests seed ``bos`` at toy ``run_at_ms`` values, below its real floor.
+
+    They pin the ranking, not the floor, so the floor is switched off here.
+    ``TestDetectorFloorSelection`` below re-enables it and covers it (#993).
+    """
+    monkeypatch.setattr("analytics.recalibrate_lib.detector_floors", dict)
+
 
 # ---------------------------------------------------------------------------
 # win_rate_to_stars — boundary values
@@ -1932,3 +1945,159 @@ class TestAvgRIsTradeWeighted:
         assert row["short_avg_r"] == pytest.approx(-0.6, abs=1e-4)
         # combined: (50*0.5 + 10*-0.6) / 60 = 0.3167
         assert row["avg_r"] == pytest.approx(0.3167, abs=1e-4)
+
+
+# ---------------------------------------------------------------------------
+# #993: rated selection never falls back below a detector's floor
+# ---------------------------------------------------------------------------
+
+_FLOOR_MS = 10_000
+_TOY_FLOORS = {
+    "bos": DetectorFloor(strategy="bos", since_ms=_FLOOR_MS, ref="test", why="test")
+}
+
+
+def _floored_run(
+    conn: duckdb.DuckDBPyConnection,
+    run_id: str,
+    run_at_ms: int,
+    pnls: list[float],
+    *,
+    strategy: str = "bos",
+    symbol: str = "BTCUSDT",
+    sweep_id: str | None = "sweep",
+    stored_extra: int = 0,
+) -> None:
+    """One 4h run whose stored closed rows equal its ``closed_trades``.
+
+    ``stored_extra`` adds closed rows the aggregate does not count, which is
+    the dirty trade layer the 2026-08-18 ``bos`` runs carry.
+    """
+    n = len(pnls)
+    wins = sum(1 for p in pnls if p > 0)
+    # A zero-trade run is stored with win_rate and avg_r 0.0, never NULL.
+    avg_r = sum(pnls) / n if n else 0.0
+    conn.execute(
+        "INSERT INTO backtest_runs "
+        "(run_id, symbol, timeframe, strategy, data_start_ms, data_end_ms, days, "
+        "sl_pct, tp_r, fee_pct, day_filter, smt_trend_filter, total_signals, "
+        "closed_trades, win_count, loss_count, win_rate, avg_r, total_r, "
+        "max_drawdown_r, run_at_ms, sweep_id) VALUES "
+        "(?, ?, '4h', ?, 0, 1, 90, 0.02, 2.0, 0.0005, 'off', 1, ?, ?, ?, ?, ?, ?, "
+        "?, 1.0, ?, ?)",
+        [
+            run_id,
+            symbol,
+            strategy,
+            n,
+            n,
+            wins,
+            n - wins,
+            wins / n if n else 0.0,
+            avg_r,
+            sum(pnls),
+            run_at_ms,
+            sweep_id,
+        ],
+    )
+    rows = [*pnls, *([-1.0] * stored_extra)]
+    for i, pnl in enumerate(rows):
+        conn.execute(
+            "INSERT INTO backtest_trades (trade_id, run_id, symbol, timeframe, "
+            "strategy, direction, signal_time, entry_time, entry_price, sl_price, "
+            "tp_price, outcome, pnl_r) "
+            "VALUES (?, ?, ?, '4h', ?, 'long', ?, ?, 100.0, 98.0, 104.0, ?, ?)",
+            [
+                f"{run_id}-{i}",
+                run_id,
+                symbol,
+                strategy,
+                i,
+                i,
+                "tp" if pnl > 0 else "sl",
+                pnl,
+            ],
+        )
+
+
+class TestDetectorFloorSelection:
+    """A floored detector is never rated from a run below its floor (#993).
+
+    Measured on the 2026-10-09 snapshot: ETHUSDT's post-fix ``bos/4h`` run
+    closed 0 trades, so the ``closed_trades > 0`` filter handed the cell to
+    ETH's 2026-05-21 look-ahead run (7 trades at -1.0R), and the stored
+    ``bos/4h/long`` star carried it.
+    """
+
+    def _conn(self) -> duckdb.DuckDBPyConnection:
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        return conn
+
+    def test_pre_floor_run_is_never_selected_when_a_post_floor_run_exists(
+        self,
+    ) -> None:
+        conn = self._conn()
+        # The pre-floor run is a SWEEP and the post-floor one is not, so the
+        # sweep-first ranking alone would pick the pre-floor run.
+        _floored_run(conn, "pre", 5_000, [1.0, 1.0], sweep_id="sweep-old")
+        _floored_run(conn, "post", 20_000, [-1.0], sweep_id=None)
+        assert select_rated_run_ids(conn, "off", floors=_TOY_FLOORS) == ["post"]
+        # Teeth: the same rows without the floor DO select the pre-floor run,
+        # so the assertion above is the floor's doing, not the fixture's.
+        assert select_rated_run_ids(conn, "off", floors={}) == ["pre"]
+
+    def test_zero_trade_post_floor_run_drops_the_symbol(self) -> None:
+        """The ETH case: the cell reads as having no ETH trades, not the old run."""
+        conn = self._conn()
+        _floored_run(conn, "eth-pre", 5_000, [-1.0] * 7, symbol="ETHUSDT")
+        _floored_run(conn, "eth-post", 20_000, [], symbol="ETHUSDT")
+        _floored_run(conn, "btc-post", 20_000, [2.0], symbol="BTCUSDT")
+        assert select_rated_run_ids(conn, "off", floors=_TOY_FLOORS) == ["btc-post"]
+
+    def test_zero_trade_winner_is_not_replaced_by_an_older_post_floor_run(
+        self,
+    ) -> None:
+        """The newest sweep's empty result IS the measurement of the cell."""
+        conn = self._conn()
+        _floored_run(conn, "older", 15_000, [1.0, -1.0])
+        _floored_run(conn, "newest", 20_000, [])
+        assert select_rated_run_ids(conn, "off", floors=_TOY_FLOORS) == []
+
+    def test_post_floor_run_with_a_dirty_trade_layer_is_not_admitted(self) -> None:
+        conn = self._conn()
+        _floored_run(conn, "dirty", 20_000, [1.0], stored_extra=3)
+        assert select_rated_run_ids(conn, "off", floors=_TOY_FLOORS) == []
+
+    def test_unfloored_detector_keeps_the_closed_trades_filter(self) -> None:
+        conn = self._conn()
+        _floored_run(conn, "fvg-old", 5_000, [1.0], strategy="fvg")
+        _floored_run(conn, "fvg-new", 20_000, [], strategy="fvg")
+        assert select_rated_run_ids(conn, "off", floors=_TOY_FLOORS) == ["fvg-old"]
+
+    def test_win_rates_read_the_floored_selection(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Stars and DSR read one selection; neither may see the pre-floor run."""
+        monkeypatch.setattr(
+            "analytics.recalibrate_lib.detector_floors", lambda: _TOY_FLOORS
+        )
+        conn = self._conn()
+        _floored_run(conn, "eth-pre", 5_000, [-1.0] * 7, symbol="ETHUSDT")
+        _floored_run(conn, "eth-post", 20_000, [], symbol="ETHUSDT")
+        _floored_run(conn, "btc-post", 20_000, [2.0], symbol="BTCUSDT")
+        row = get_backtest_win_rates(conn, day_filter="off").iloc[0]
+        assert (row["strategy"], row["timeframe"]) == ("bos", "4h")
+        assert row["total_trades"] == 1
+        assert row["avg_r"] == pytest.approx(2.0)
+
+    def test_default_floors_are_read_from_the_era_registry(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.undo()  # drop this module's floor-off fixture
+        since = detector_floors()["bos"].since_ms
+        conn = self._conn()
+        _floored_run(conn, "pre", since - 1, [1.0])
+        assert select_rated_run_ids(conn, "off") == []
+        _floored_run(conn, "at", since, [1.0], sweep_id=None)
+        assert select_rated_run_ids(conn, "off") == ["at"]
