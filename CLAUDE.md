@@ -214,7 +214,7 @@ The plugin is installed account-wide; the flow and its cross-repo rules are in t
 - **The PR body is Matt's `pr` shape, written through `/pr-summary`**, which adds this repo's
   title and test-plan rules and the file output.
 - **`/handoff` is for forking a side task; it never replaces the standing handoff**
-  (`docs/plans/next-conversation-prompt.md`, written by `/post-branch` Step 10b).
+  (`docs/plans/next-conversation-prompt.md`, written by `/post-branch` Step 10).
 - **`diagnosing-bugs` on a signal that did or did not fire builds its Phase 1 loop with
   `/investigate-strategy`**, which replays the detector at the candle.
 

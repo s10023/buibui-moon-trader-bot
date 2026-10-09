@@ -1,6 +1,14 @@
 ---
 name: ingest-feed
-description: Poll the configured YouTube channel follow list for new uploads (tools/yt_feed.py — read-only Data API polling + explicit-outcome ledger) and feed the picked videos into the existing /ingest-video batch flow, marking consumption ONLY after the review gate routes the batch. Also drives deep back-catalogue ingestion per channel via the backfill subcommand, and curated `PL…` playlists — where the Stream B framework material lives, invisible to poll and backfill because both page only the uploads mirror — in resumable tranches via `playlists` + `backfill --playlist`. Invoke when the user says "/ingest-feed", "what's new on youtube", "poll the channels", "backfill <channel>", "what playlists does <channel> have", or "ingest the old videos from <channel>".
+description: >
+  Poll the configured YouTube channel follow list for new uploads
+  (tools/yt_feed.py) and feed the picked videos into the /ingest-video batch
+  flow; consumption is marked only after the review gate routes the batch.
+  Also drives deep back-catalogue ingestion per channel (`backfill`) and
+  curated `PL…` playlists (`playlists` + `backfill --playlist`). Invoke when
+  the user says "/ingest-feed", "what's new on youtube", "poll the channels",
+  "backfill <channel>", "what playlists does <channel> have", or "ingest the
+  old videos from <channel>".
 ---
 
 # Ingest feed (YouTube channel auto-feed)

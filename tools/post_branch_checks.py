@@ -1181,22 +1181,32 @@ def _read_text_arg(path: str) -> str:
 # is the REACHABLE thing and the skill is not, so the fix belongs here rather
 # than on another rule.
 #
-# ⚠ These are STEP numbers on purpose. The skill's phases 1-6 are table rows
-# that declare no headings, so `tools/stale_anchors.py` correctly flags a
-# "post-branch phase 4" citation from any other file as a dead anchor.
+# ⚠ These are STEP numbers on purpose: they are the headings the skill
+# declares, which is what `tools/stale_anchors.py` resolves a citation against.
 UNCOVERED_STEPS: tuple[tuple[str, str], ...] = (
     ("Step 1", "behaviour gate — is this PR user-facing?"),
     ("Steps 2-4", "walk each doc surface against the diff"),
-    ("Steps 5, 5b", "MEMORY.md + Issue reconcile — run even if Step 1 says no"),
+    ("Steps 5, 6", "MEMORY.md + Issue reconcile — run even if Step 1 says no"),
     (
         "Step 7",
         "`make preflight` (clean-clone gate; it REPLACES this branch's "
         "`make test`) and the visibility-flip decision, both BEFORE "
         "`gh pr create`",
     ),
-    ("Step 6", "PR body"),
-    ("Steps 10a-10c", "pre-merge check, handoff, re-verify PR state last"),
+    ("Step 8", "PR body"),
+    ("Steps 9-11", "pre-merge check, handoff, re-verify PR state last"),
 )
+
+
+def _wrap_keeping_code(text: str, width: int) -> list[str]:
+    """``textwrap.wrap`` that never breaks inside a backtick span.
+
+    A break inside a span splits a command the reader would copy, and where it
+    lands moves whenever a label's width does: renumbering the skill's steps
+    shortened the widest label and split `gh pr create` across two lines.
+    """
+    held = re.sub(r"`[^`]*`", lambda m: m.group(0).replace(" ", "\x00"), text)
+    return [line.replace("\x00", " ") for line in textwrap.wrap(held, width=width)]
 
 
 def uncovered_notice() -> list[str]:
@@ -1216,7 +1226,7 @@ def uncovered_notice() -> list[str]:
     # Telegram renderer folds to 46 columns to avoid.
     indent = " " * (6 + width + 2)
     for label, what in UNCOVERED_STEPS:
-        wrapped = textwrap.wrap(what, width=72 - width)
+        wrapped = _wrap_keeping_code(what, 72 - width)
         out.append(f"      {label:<{width}}  {wrapped[0]}")
         out.extend(f"{indent}{line}" for line in wrapped[1:])
     out += [
