@@ -68,6 +68,48 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
             PRIMARY KEY (symbol, timestamp)
         )
     """)
+    # data.binance.vision metrics archive (#936). Additive tables beside `open_interest`,
+    # never a key change to it: archive rows carry `source` in the PRIMARY KEY so they
+    # can never overwrite or be confused with REST rows. Read rule:
+    # `get_open_interest_merged` (REST wins at an identical timestamp).
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS open_interest_archive (
+            source                   TEXT   NOT NULL,
+            symbol                   TEXT   NOT NULL,
+            timestamp                BIGINT NOT NULL,
+            oi_usd                   DOUBLE NOT NULL,
+            oi_contracts             DOUBLE NOT NULL,
+            toptrader_count_ls_ratio DOUBLE,
+            toptrader_sum_ls_ratio   DOUBLE,
+            count_ls_ratio           DOUBLE,
+            PRIMARY KEY (source, symbol, timestamp)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS open_interest_archive_5m (
+            source                   TEXT   NOT NULL,
+            symbol                   TEXT   NOT NULL,
+            timestamp                BIGINT NOT NULL,
+            oi_usd                   DOUBLE NOT NULL,
+            oi_contracts             DOUBLE NOT NULL,
+            toptrader_count_ls_ratio DOUBLE,
+            toptrader_sum_ls_ratio   DOUBLE,
+            count_ls_ratio           DOUBLE,
+            taker_ls_vol_ratio       DOUBLE,
+            PRIMARY KEY (source, symbol, timestamp)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS open_interest_archive_days (
+            source        TEXT    NOT NULL,
+            symbol        TEXT    NOT NULL,
+            day           TEXT    NOT NULL,
+            status        TEXT    NOT NULL,
+            n_rows        INTEGER NOT NULL,
+            fetched_at_ms BIGINT  NOT NULL,
+            PRIMARY KEY (source, symbol, day)
+        )
+    """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS venue_spot_daily (
             venue     TEXT   NOT NULL,

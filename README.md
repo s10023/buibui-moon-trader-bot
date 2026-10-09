@@ -512,6 +512,30 @@ Options:
 
 Data is stored in `analytics.db` (auto-created in CWD).
 
+**Open-interest archive — history before the REST window (#936):**
+
+```bash
+poetry run python buibui.py analytics oi-archive --universe          # or --symbols BTCUSDT ...
+make oi-archive-backfill DB=path/to/copy.db REPORT=1                  # coverage table only
+```
+
+Loads Binance's public `data.binance.vision` `futures/um/daily/metrics` dump (keyless,
+5-minute grain; BTC from 2020-09-01) into three **additive** tables, so the live
+`open_interest` table and its key are untouched and no migration is needed:
+`open_interest_archive` (hourly, `source` in the key), `open_interest_archive_5m`
+(the raw 5-minute rows incl. the taker ratio; opt-in with `--with-5m`, about 340 MB for the universe against 28 MB hourly) and
+`open_interest_archive_days` (a per-day ledger of loaded / missing days that makes a
+re-run skip finished days). **Read rule:** `get_open_interest_merged(conn, symbol, start,
+end)` returns REST rows first and archive rows only at hours REST lacks, each row labelled
+with its `source`; nothing is blended. **Hourly resample:** the row stamped hour `T` is the
+last 5-minute snapshot at or before `T - 5 min` (measured: REST's value at `T` equals the
+archive row labelled `T - 5 min` to float precision), at most 10 minutes older than that and
+from the same UTC day file, else no row; the taker ratio is a 5-minute flow and stays out
+of the hourly table. A 404 day
+is recorded as a gap; zips are cached under gitignored `.cache/oi-archive/`. Options:
+`--since/--until`, `--db`, `--workers` (default 4), `--with-5m`, `--force`,
+`--retry-missing`, `--report-only`. Exits 1 if any day failed for a reason other than 404.
+
 **`analytics.db` is gitignored and single-copy — back it up.** It holds the live
 outcome ledger, which is *not* reconstructible: exchanges do not re-serve historical
 signal fires, and restarting collection yields a differently-biased sample rather than
@@ -1402,6 +1426,7 @@ make buibui-analytics-backfill              # Backfill from 2023-01-01 (default)
 make buibui-analytics-backfill SINCE=2024-01-01   # Backfill from custom date
 make buibui-analytics-sync                  # Incremental sync
 make universe-backfill                      # Deep 25-perp universe (1h/4h/1d/1w since 2019)
+make oi-archive-backfill                    # Open-interest archive for the universe (#936)
 ```
 
 **Backtest:**
