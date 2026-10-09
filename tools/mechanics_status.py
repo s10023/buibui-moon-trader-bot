@@ -26,8 +26,10 @@ route that writes here.
 An entry is a top-level `- ` bullet after the preamble's first `---` line; it runs until the
 next unindented non-blank line. Column-0 code fences in the section prose are skipped.
 
-Deliberately stdlib-only, with NO `sys.path` bootstrap, because it imports nothing from the
-repo; `test_bare_invocation_works` pins the bare `python3 tools/mechanics_status.py` form.
+Deliberately stdlib-only, with NO module-level `sys.path` bootstrap, because the library
+imports nothing from the repo (`route_dedup` imports `STATUS_LINE_RE` from it). Only the
+`__main__` block adds the repo root, for `utils.stdio`; `test_bare_invocation_works` pins
+the bare `python3 tools/mechanics_status.py` form.
 """
 
 from __future__ import annotations
@@ -224,13 +226,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"mechanics backlog not found: {path} (pass --path)", file=sys.stderr)
         return 2
     entries = parse_entries(path.read_text(encoding="utf-8"))
-    # Titles carry CJK author names; a cp1252 pipe must not crash the count.
-    reconfigure = getattr(sys.stdout, "reconfigure", None)
-    if reconfigure is not None:
-        reconfigure(encoding="utf-8", errors="replace")
     print(render(entries, path, args.list))
     return 1 if args.check and problems(entries) else 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Repo root, for utils.stdio: a bare `python tools/<name>.py` puts only
+    # tools/ on the path. Scoped to the entry so an import mutates nothing.
+    # Titles carry CJK author names, which a cp1252 pipe cannot encode.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from utils.stdio import utf8_stdio
+
+    utf8_stdio()
+    raise SystemExit(main())
