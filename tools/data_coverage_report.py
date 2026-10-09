@@ -11,6 +11,7 @@ Run via: PYTHONPATH=. poetry run python tools/data_coverage_report.py [--db anal
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -156,4 +157,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # Repo root, for utils.stdio: a bare `python tools/<name>.py` puts only
+    # tools/ on the path. Scoped to the entry so an import mutates nothing.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from utils.stdio import utf8_stdio
+
+    utf8_stdio()
     main()

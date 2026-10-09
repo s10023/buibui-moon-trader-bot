@@ -14,9 +14,11 @@ from __future__ import annotations
 import argparse
 import json
 import statistics
+import sys
 import time
 import urllib.request
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 _FAPI = "https://fapi.binance.com"
@@ -133,4 +135,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # Repo root, for utils.stdio: a bare `python tools/<name>.py` puts only
+    # tools/ on the path. Scoped to the entry so an import mutates nothing.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from utils.stdio import utf8_stdio
+
+    utf8_stdio()
     main()

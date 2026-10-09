@@ -1252,4 +1252,7 @@ def main(
 
 
 if __name__ == "__main__":
+    from utils.stdio import utf8_stdio
+
+    utf8_stdio()
     sys.exit(main())

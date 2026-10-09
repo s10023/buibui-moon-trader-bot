@@ -24,8 +24,9 @@ Three legs, because each one is blind where the next one looks:
   is invisible to both legs above. `pyproject.toml`'s `[project].dependencies`
   names those.
 
-It imports nothing from the repo, so a bare `python tools/venv_integrity.py`
-works with no path bootstrap. It lives here rather than inside the gitignored
+Its one repo import, the stdlib-only `utils.stdio`, happens inside the `__main__`
+block after a scoped path insert, so a bare `python tools/venv_integrity.py` still works
+on a venv too broken to import anything else. It lives here rather than inside the gitignored
 `docs/plans/daily_check.py` so the logic reaches CI and a reclone.
 """
 
@@ -222,4 +223,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # Repo root, for utils.stdio: a bare `python tools/<name>.py` puts only
+    # tools/ on the path. Scoped to the entry so an import mutates nothing.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from utils.stdio import utf8_stdio
+
+    utf8_stdio()
     sys.exit(main())
