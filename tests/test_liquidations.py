@@ -29,8 +29,8 @@ def ev(kind: str, ts: int, **kw: Any) -> dict[str, Any]:
     return {"t": kind, "ts": ts, **kw}
 
 
-def heartbeats(start: int, minutes: int) -> list[dict[str, Any]]:
-    return [hb(start + i * MIN) for i in range(minutes + 1)]
+def heartbeats(start: int, minutes: int, msgs: int = 0) -> list[dict[str, Any]]:
+    return [{**hb(start + i * MIN), "msgs": msgs} for i in range(minutes + 1)]
 
 
 def force_order(symbol: str = "BTCUSDT", *, wrapped: bool = True) -> dict[str, Any]:
@@ -173,39 +173,42 @@ class TestGapRule:
 class TestStatus:
     def test_healthy_recorder(self, tmp_path: Path) -> None:
         now = T0 + 60 * MIN
-        write_day(tmp_path, DAY0, [ev("connect", T0), *heartbeats(T0, 60)])
+        write_day(tmp_path, DAY0, [ev("connect", T0), *heartbeats(T0, 60, msgs=2)])
         s = liq.recorder_status(tmp_path, now=now + 20_000)
         assert s.ok and s.gap_minutes == 0
         assert s.last_heartbeat_age_s == 20.0
         assert "ok" in s.line and "20s ago" in s.line
 
-    def test_quiet_market_day_is_healthy(self, tmp_path: Path) -> None:
-        """Zero messages all day is not a failure."""
-        write_day(tmp_path, DAY0, [ev("connect", T0), *heartbeats(T0, 120)])
-        assert liq.recorder_status(tmp_path, now=T0 + 120 * MIN).ok
+    def test_quiet_market_below_the_silence_alarm_is_healthy(
+        self, tmp_path: Path
+    ) -> None:
+        """No messages for most of an hour is not a failure."""
+        write_day(tmp_path, DAY0, [ev("connect", T0), *heartbeats(T0, 50)])
+        assert liq.recorder_status(tmp_path, now=T0 + 50 * MIN).ok
 
     def test_connected_but_receiving_no_frames_for_hours_is_a_dead_subscription(
         self, tmp_path: Path
     ) -> None:
         """The routing trap: the legacy URL connects and heartbeats but delivers nothing.
-        Separate from the gap rule -- gap minutes stay 0 -- and only after 3h."""
-        write_day(tmp_path, DAY0, [ev("connect", T0), *heartbeats(T0, 240)])
-        s = liq.recorder_status(tmp_path, now=T0 + 240 * MIN)
+        Separate from the gap rule -- gap minutes stay 0 -- and only after SILENT_ALARM_H."""
+        assert liq.SILENT_ALARM_H == 1.0
+        write_day(tmp_path, DAY0, [ev("connect", T0), *heartbeats(T0, 90)])
+        s = liq.recorder_status(tmp_path, now=T0 + 90 * MIN)
         assert s.gap_minutes == 0 and s.silent and not s.ok
         assert "NO FRAMES" in s.line
 
     def test_hours_with_frames_are_not_silent(self, tmp_path: Path) -> None:
-        recs = [ev("connect", T0), *heartbeats(T0, 240)]
-        recs[-30] = {**recs[-30], "msgs": 3}  # one busy minute inside the last 3h
+        recs = [ev("connect", T0), *heartbeats(T0, 90)]
+        recs[-30] = {**recs[-30], "msgs": 3}  # one busy minute inside the last hour
         write_day(tmp_path, DAY0, recs)
-        s = liq.recorder_status(tmp_path, now=T0 + 240 * MIN)
+        s = liq.recorder_status(tmp_path, now=T0 + 90 * MIN)
         assert s.ok and not s.silent and s.messages == 3
 
     def test_a_short_silence_is_a_quiet_market_not_an_alarm(
         self, tmp_path: Path
     ) -> None:
-        write_day(tmp_path, DAY0, [ev("connect", T0), *heartbeats(T0, 150)])
-        assert liq.recorder_status(tmp_path, now=T0 + 150 * MIN).ok
+        write_day(tmp_path, DAY0, [ev("connect", T0), *heartbeats(T0, 45)])
+        assert liq.recorder_status(tmp_path, now=T0 + 45 * MIN).ok
 
     def test_stale_heartbeat_is_red(self, tmp_path: Path) -> None:
         write_day(tmp_path, DAY0, [ev("connect", T0), *heartbeats(T0, 5)])
@@ -216,8 +219,19 @@ class TestStatus:
         recs = [ev("connect", T0), *heartbeats(T0, 2), *heartbeats(T0 + 122 * MIN, 5)]
         write_day(tmp_path, DAY0, recs)
         s = liq.recorder_status(tmp_path, now=T0 + 127 * MIN)
+        assert liq.GAP_BUDGET_MINUTES == 15.0
         assert s.gap_minutes == 120.0 and not s.ok
         assert liq.recorder_status(tmp_path, now=T0 + 127 * MIN, max_gap_minutes=200).ok
+
+    def test_a_short_outage_inside_the_budget_stays_ok(self, tmp_path: Path) -> None:
+        recs = [
+            ev("connect", T0),
+            *heartbeats(T0, 2, msgs=1),
+            *heartbeats(T0 + 12 * MIN, 5, msgs=1),
+        ]
+        write_day(tmp_path, DAY0, recs)
+        s = liq.recorder_status(tmp_path, now=T0 + 17 * MIN)
+        assert s.gap_minutes == 10.0 and s.ok
 
     def test_no_files_is_red_not_a_crash(self, tmp_path: Path) -> None:
         s = liq.recorder_status(tmp_path / "missing", now=T0)

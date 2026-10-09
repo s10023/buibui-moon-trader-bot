@@ -525,7 +525,7 @@ adapter for what Task Scheduler genuinely cannot do, and nothing else:
 ### Prerequisites
 
 - **Git for Windows** — supplies `bash`, `curl` and the coreutils every deploy script
-  needs. The installer defaults to `C:\Program Files\Gitinash.exe`; pass
+  needs. The installer defaults to `C:\Program Files\Git\bin\bash.exe`; pass
   `-BashExe` if yours is elsewhere.
 - **Python 3.13** (`pyproject.toml` pins `>=3.13,<3.14` — 3.11 or 3.12 will not resolve),
   Poetry, `node`, `ffmpeg`, `rclone`.
@@ -538,8 +538,8 @@ adapter for what Task Scheduler genuinely cannot do, and nothing else:
 powershell -ExecutionPolicy Bypass -File deploy\windows\install-tasks.ps1 -WhatIf   # look first
 powershell -ExecutionPolicy Bypass -File deploy\windows\install-tasks.ps1
 
-Get-ScheduledTask -TaskPath 'uibui' | Format-Table TaskName, State
-Get-ScheduledTaskInfo -TaskPath 'uibui' -TaskName 'buibui-signal-watch'
+Get-ScheduledTask -TaskPath '\buibui\' | Format-Table TaskName, State
+Get-ScheduledTaskInfo -TaskPath '\buibui\' -TaskName 'buibui-signal-watch'
 ```
 
 The off-site backup is registered with the rest but **must not be trusted until

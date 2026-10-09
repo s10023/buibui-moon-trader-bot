@@ -77,11 +77,11 @@ HEARTBEAT_INTERVAL_S = 60
 # "No heartbeat for more than ~2 minutes". Twice the interval, so one late tick is not a gap.
 GAP_THRESHOLD_S = 120
 # `recorder_status` reds when more than this many minutes of the past 24h were uncovered.
-GAP_BUDGET_MINUTES = 60.0
+GAP_BUDGET_MINUTES = 15.0
 # Connected and heartbeating this long with ZERO frames = a dead subscription (see the
 # routing trap). The all-market stream carries tens of liquidations an hour at its
-# quietest, so three silent hours is not a quiet market. Separate from the gap rule.
-SILENT_ALARM_H = 3.0
+# quietest, so a silent hour is not a quiet market. Separate from the gap rule.
+SILENT_ALARM_H = 1.0
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATA_DIR = REPO_ROOT / "data" / "liquidations"

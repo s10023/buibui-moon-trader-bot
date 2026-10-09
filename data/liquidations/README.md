@@ -45,5 +45,5 @@ gaps = load_gaps()  # start/end/minutes/cause
 
 Market streams are served under `/market`. The legacy `/ws/` and `/stream` paths still
 accept the connection and push nothing (measured 2026-10-09: 0 frames against 88 on the
-same stream in 120 seconds). `recorder_status` raises a separate alarm after 3 hours of
+same stream in 120 seconds). `recorder_status` raises a separate alarm after 1 hour of
 heartbeats with zero frames.
