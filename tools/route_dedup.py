@@ -34,6 +34,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from analytics.pundit_authors import normalize_author  # noqa: E402
+from tools.mechanics_status import STATUS_LINE_RE  # noqa: E402
 
 # The three routing targets, byte-identical to what `tools/x_route.route_target`
 # returns — a drift guard in the test suite pins them together.
@@ -410,6 +411,12 @@ def semantic_scope(sink: str, source_id: str | None, author: str | None = None) 
     return "same-source" if source_id else "none"
 
 
+def _without_status_lines(entry: str) -> str:
+    return "\n".join(
+        line for line in entry.splitlines() if not STATUS_LINE_RE.match(line)
+    )
+
+
 def _comparable_entries(
     sink: str, sink_text: str, source_id: str | None, author: str | None = None
 ) -> list[tuple[str, str]]:
@@ -418,6 +425,11 @@ def _comparable_entries(
     if scope == "none":
         return []
     entries = split_entries(sink, sink_text)
+    if sink == MECHANICS_SINK:
+        # Every entry ends with a #977 Status line whose words every entry shares; scored,
+        # it dilutes the Jaccard term (measured: self-recall 103 -> 83 of 199 entries).
+        # The excerpt keeps it, so the reviewer still sees whether a match is CLOSED.
+        return [(_without_status_lines(e), e) for e in entries]
     if sink in SEMANTIC_SINKS:
         return [(e, e) for e in entries]
     wanted_author = normalize_author(author) if author else None

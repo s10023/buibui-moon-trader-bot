@@ -55,7 +55,7 @@ DEFAULT_PATH = (
     Path(__file__).resolve().parents[1] / "docs" / "plans" / "mechanics-backlog.md"
 )
 
-_STATUS_RE = re.compile(r"^\s+Status:\s*([A-Za-z]+)\b(?:\s*\(([a-z]+)\))?(.*)$")
+STATUS_LINE_RE = re.compile(r"^\s+Status:\s*([A-Za-z]+)\b(?:\s*\(([a-z]+)\))?(.*)$")
 _VERDICT_RE = re.compile(r"verdict:\s*(\S.*)$")
 _TITLE_CHARS = 90
 
@@ -96,7 +96,7 @@ def parse_entries(text: str) -> list[Entry]:
         kind: str | None = None
         verdict: str | None = None
         for _, line in cur[1:]:
-            m = _STATUS_RE.match(line)
+            m = STATUS_LINE_RE.match(line)
             if m:
                 statuses.append(m.group(1))
                 kind = m.group(2)
