@@ -32,7 +32,12 @@ from pathlib import Path
 # catch it -- `test_bare_invocation_works` is the guarantee, not this line.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.claude_home import CONFIG_DIR_NAMES, config_roots, slugify_path  # noqa: E402
+from tools.claude_home import (  # noqa: E402
+    CONFIG_DIR_NAMES,
+    config_roots,
+    project_slug,
+    slugify_path,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -62,12 +67,25 @@ def slug_for(path: Path) -> str:
     return slugify_path(str(path))
 
 
-def memory_dir(repo_root: Path | None = None, *, home: Path | None = None) -> Path:
-    """The memory tree for `repo_root`, or the legacy path when none exists.
+class MemoryDirNotFoundError(FileNotFoundError):
+    """No candidate memory tree exists. Carries every path tried, so the miss is
+    diagnosable from the message alone."""
 
-    Returns the first candidate that EXISTS. Callers guard with ``.exists()`` and
-    degrade to an info line, so returning the legacy path as the fallback keeps a
-    box that genuinely has no memory tree reporting exactly what it did before.
+    def __init__(self, tried: list[Path]) -> None:
+        self.tried = tried
+        listing = "\n".join(f"  {p.as_posix()}" for p in tried)
+        super().__init__(f"no memory tree found; tried:\n{listing}")
+
+
+def memory_dir(repo_root: Path | None = None, *, home: Path | None = None) -> Path:
+    """The memory tree for `repo_root`. Raises `MemoryDirNotFoundError` when none exists.
+
+    The slug is the MAIN checkout's (`tools.claude_home.project_slug`), because that is
+    where the harness keeps memory for every worktree of the repo. This used to slug
+    `repo_root` itself and, finding nothing from a worktree, RETURN the legacy
+    ``~/.claude-personal/projects/-home-kng-.../memory`` -- a path that does not exist
+    on the Windows laptop, printed as though it were the answer. Every consumer then
+    read "not on this machine". Raising makes the miss impossible to mistake for one.
 
     The candidate roots come from `tools.claude_home.config_roots`, so
     ``CLAUDE_CONFIG_DIR`` is honoured here exactly as it is by the backup script.
@@ -76,14 +94,16 @@ def memory_dir(repo_root: Path | None = None, *, home: Path | None = None) -> Pa
     """
     roots = config_roots(home)
     root = REPO_ROOT if repo_root is None else repo_root
-    derived = slug_for(root)
+    derived = project_slug(root)
 
+    tried: list[Path] = []
     for config_root in roots:
-        for slug in (derived, LEGACY_SLUG):
+        for slug in dict.fromkeys((derived, LEGACY_SLUG)):
             candidate = config_root / "projects" / slug / "memory"
             if candidate.is_dir():
                 return candidate
-    return roots[0] / "projects" / LEGACY_SLUG / "memory"
+            tried.append(candidate)
+    raise MemoryDirNotFoundError(tried)
 
 
 if __name__ == "__main__":  # pragma: no cover - a Makefile entry point
@@ -91,4 +111,8 @@ if __name__ == "__main__":  # pragma: no cover - a Makefile entry point
     # Makefile, whose recipe shell EATS backslashes -- printing the native form
     # turned `C:\Users\User\...` into `C:UsersUser...` and `make status` reported
     # a missing file. Git Bash and every Python caller accept forward slashes.
-    print(memory_dir().as_posix())
+    try:
+        print(memory_dir().as_posix())
+    except MemoryDirNotFoundError as exc:
+        print(f"memory_dir.py: {exc}", file=sys.stderr)
+        sys.exit(1)
