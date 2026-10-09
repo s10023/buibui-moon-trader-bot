@@ -355,3 +355,129 @@ def test_submit_raises_unconfirmed_on_an_error_body_served_as_http_200() -> None
     assert info.value.body == body
     assert "-2022" in str(info.value)
     assert not isinstance(info.value, APIError)
+
+
+# ----- #981: conditional exits, per-id cancel and the exit manager's reads -----
+
+
+def _algo_client() -> MagicMock:
+    client = MagicMock()
+    client.futures_create_order.return_value = {"algoId": 5}
+    return client
+
+
+def test_close_position_stop_sends_trigger_and_omits_quantity() -> None:
+    client = _algo_client()
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    intent = OrderIntent(
+        "AAAUSDT",
+        "SELL",
+        0.0,
+        True,
+        0.0,
+        "exit_stop",
+        "STOP_MARKET",
+        position_side="LONG",
+        stop_price=95.0,
+        close_position=True,
+    )
+    assert adapter.submit(intent)["algoId"] == 5
+    kwargs = client.futures_create_order.call_args.kwargs
+    assert kwargs["closePosition"] == "true"
+    assert kwargs["stopPrice"] == 95.0
+    assert kwargs["workingType"] == "MARK_PRICE"
+    assert "quantity" not in kwargs and "reduceOnly" not in kwargs
+
+
+def test_close_position_on_a_one_way_account_still_omits_reduce_only() -> None:
+    client = _algo_client()
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    intent = OrderIntent(
+        "AAAUSDT", "SELL", 0.0, True, 0.0, "x", "STOP_MARKET",
+        stop_price=95.0, close_position=True,
+    )  # fmt: skip
+    adapter.submit(intent)
+    assert "reduceOnly" not in client.futures_create_order.call_args.kwargs
+
+
+def test_conditional_without_trigger_and_misplaced_close_position_raise() -> None:
+    adapter = BinanceFuturesAdapter(_algo_client(), mode="dry_run")
+    with pytest.raises(ValueError, match="stop_price"):
+        adapter.submit(OrderIntent("A", "SELL", 1.0, True, 0.0, "x", "STOP_MARKET"))
+    with pytest.raises(ValueError, match="conditional"):
+        adapter.submit(
+            OrderIntent("A", "SELL", 1.0, True, 0.0, "x", "LIMIT", close_position=True),
+            price=1.0,
+        )
+
+
+def test_unacknowledged_conditional_raises_unconfirmed() -> None:
+    client = MagicMock()
+    client.futures_create_order.return_value = {"orderId": 9}  # wrong route's id
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    intent = OrderIntent(
+        "A", "SELL", 0.0, True, 0.0, "x", "STOP_MARKET",
+        stop_price=1.0, close_position=True,
+    )  # fmt: skip
+    with pytest.raises(UnconfirmedOrderError):
+        adapter.submit(intent)
+
+
+def test_cancel_order_is_by_one_id_and_a_dry_run_noop() -> None:
+    client = MagicMock()
+    BinanceFuturesAdapter(client, mode="live").cancel_order("A", algo_id=3)
+    BinanceFuturesAdapter(client, mode="live").cancel_order("A", order_id=4)
+    calls = [c.kwargs for c in client.futures_cancel_order.call_args_list]
+    assert calls == [{"symbol": "A", "algoId": 3}, {"symbol": "A", "orderId": 4}]
+    BinanceFuturesAdapter(client, mode="dry_run").cancel_order("A", order_id=4)
+    assert client.futures_cancel_order.call_count == 2
+    with pytest.raises(ValueError):
+        BinanceFuturesAdapter(client, mode="live").cancel_order("A")
+
+
+def test_get_side_position_reads_the_side_in_either_mode() -> None:
+    client = MagicMock()
+    client.futures_position_information.return_value = [
+        {"symbol": "A", "positionSide": "LONG", "positionAmt": "2", "entryPrice": "10"},
+        {
+            "symbol": "A",
+            "positionSide": "SHORT",
+            "positionAmt": "-3",
+            "entryPrice": "11",
+        },
+    ]
+    adapter = BinanceFuturesAdapter(client, mode="dry_run")
+    assert adapter.get_side_position("A", "SHORT", dual_side=True) == (3.0, 11.0)
+    client.futures_position_information.return_value = [
+        {
+            "symbol": "A",
+            "positionSide": "BOTH",
+            "positionAmt": "-3",
+            "entryPrice": "11",
+        },
+    ]
+    assert adapter.get_side_position("A", "LONG", dual_side=False) == (0.0, 0.0)
+    assert adapter.get_side_position("A", "SHORT", dual_side=False) == (3.0, 11.0)
+
+
+def test_get_account_trades_tiles_seven_days_with_an_explicit_end() -> None:
+    client = MagicMock()
+    client.futures_account_trades.return_value = []
+    adapter = BinanceFuturesAdapter(client, mode="dry_run")
+    day = 86_400_000
+    adapter.get_account_trades("A", 0, 10 * day)
+    windows = [
+        (c.kwargs["startTime"], c.kwargs["endTime"])
+        for c in client.futures_account_trades.call_args_list
+    ]
+    assert windows == [(0, 7 * day), (7 * day + 1, 10 * day)]
+
+
+def test_get_account_trades_pages_a_full_tile_and_dedups() -> None:
+    page = [{"id": i, "time": i} for i in range(1000)]
+    client = MagicMock()
+    client.futures_account_trades.side_effect = [page, [{"id": 999, "time": 999}]]
+    adapter = BinanceFuturesAdapter(client, mode="dry_run")
+    out = adapter.get_account_trades("A", 0, 5_000)
+    assert len(out) == 1000
+    assert client.futures_account_trades.call_args.kwargs["startTime"] == 999

@@ -23,7 +23,7 @@ from portfolio.sizing import (
     round_down_to_step,
     round_to_tick,
 )
-from trade.binance_futures import APIError, BinanceFuturesAdapter
+from trade.binance_futures import POST_ONLY_REJECT, APIError, BinanceFuturesAdapter
 from trade.routing import ExchangeFilters, OrderIntent
 
 DEFAULT_ORDERS_PATH = "docs/plans/card-orders.jsonl"
@@ -370,7 +370,7 @@ def check_placement(
 # binds APIError to the real binance.exceptions.BinanceAPIException, which
 # sets .code from the parsed response body -- adjust here if a future
 # rebinding surfaces the rejection differently.
-_POST_ONLY_REJECT = -5022
+_POST_ONLY_REJECT = POST_ONLY_REJECT
 
 
 def place_orders(

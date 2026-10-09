@@ -15,6 +15,7 @@ from cli import (
     card,
     card_orders,
     digest,
+    exits,
     monitor,
     param,
     portfolio,
@@ -43,6 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     card.add_card_subparser(subparsers)
     card_orders.add_card_orders_subparsers(subparsers)
     digest.add_digest_subparser(subparsers)
+    exits.add_exits_subparser(subparsers)
     param.add_param_sweep_subparser(subparsers)
     param.add_param_audit_subparser(subparsers)
     portfolio.add_portfolio_subparser(subparsers)

@@ -2,7 +2,8 @@
 
 Thin, injectable wrapper over a `python-binance` Client. Read methods always
 hit the API — this includes `dry_run`, so a dry run sees real exchange state;
-write methods (`ensure_account_config`, `submit`, `cancel_open_orders`) are
+write methods (`ensure_account_config`, `submit`, `cancel_order`,
+`cancel_open_orders`) are
 no-op-and-log when `mode == "dry_run"`. The client is constructed by the CLI
 (mainnet for dry_run/live, testnet client for testnet) and injected here, so
 this class is unit-testable with a MagicMock.
@@ -29,6 +30,14 @@ except ImportError:  # pragma: no cover - older/alternate client shape
 
 
 _MARGIN_TYPE_UNCHANGED = -4046
+# A GTX order that would cross is refused rather than rested (card.orders and
+# trade.exit_manager both read it as a stale level, not a broken order).
+POST_ONLY_REJECT = -5022
+# "Invalid API-key, IP, or permissions": the key is allowlisted to a dynamic
+# residential IP, so an ISP change returns this on EVERY signed call (#981).
+KEY_OR_IP_REJECTED = -2015
+_TRADES_MAX_INTERVAL_MS = 7 * 86_400_000  # userTrades' per-call window cap
+_TRADES_PAGE_LIMIT = 1000
 
 # python-binance 1.0.37's `futures_create_order` silently routes these types to
 # `POST /fapi/v1/algoOrder` (Binance moved conditionals to the Algo service on
@@ -184,6 +193,81 @@ class BinanceFuturesAdapter:
         rows = self.client.futures_get_open_orders()
         return {r["symbol"] for r in rows}
 
+    def is_dual_side(self) -> bool:
+        """True on a hedge-mode (dualSidePosition) account."""
+        return bool(self.client.futures_get_position_mode().get("dualSidePosition"))
+
+    def get_side_position(
+        self, symbol: str, side: str, *, dual_side: bool
+    ) -> tuple[float, float]:
+        """(absolute qty, entry price) of one direction's position; (0.0, 0.0) if flat.
+
+        Hedge mode reads the row whose `positionSide` is `side`. One-way mode
+        has a single `BOTH` row whose sign is the direction, so a LONG read of
+        a short position is flat, never a negative quantity.
+        """
+        if side not in ("LONG", "SHORT"):
+            raise ValueError(f"side must be LONG or SHORT, got {side!r}")
+        for r in self.client.futures_position_information(symbol=symbol):
+            if r.get("symbol", symbol) != symbol:
+                continue
+            amt = float(r["positionAmt"])
+            if dual_side:
+                if r.get("positionSide") != side:
+                    continue
+            elif (amt > 0.0) != (side == "LONG"):
+                continue
+            if amt != 0.0:
+                return abs(amt), float(r.get("entryPrice") or 0.0)
+        return 0.0, 0.0
+
+    def get_open_algo_orders(self, symbol: str) -> list[dict[str, Any]]:
+        """Resting conditional orders (`openAlgoOrders`); `openOrders` never lists a stop."""
+        rows = self.client.futures_get_open_orders(symbol=symbol, conditional=True)
+        if isinstance(rows, dict):  # the algo route has wrapped lists before
+            rows = rows.get("orders", [])
+        return list(rows or [])
+
+    def get_order(self, symbol: str, order_id: int) -> dict[str, Any]:
+        """One classic order by id, whatever its status."""
+        resp = self.client.futures_get_order(symbol=symbol, orderId=order_id)
+        return dict(resp)
+
+    def get_account_trades(
+        self, symbol: str, start_ms: int, end_ms: int
+    ) -> list[dict[str, Any]]:
+        """Every fill on `symbol` in [start_ms, end_ms], oldest first.
+
+        `userTrades` serves at most 7 days per call, and a `startTime` with no
+        `endTime` is silently clamped to the first 7 days of the window (see
+        `tools/journal_fetch.py`), so the window is tiled with an explicit end.
+        A tile that returns its `limit` is paged forward from its last fill.
+        """
+        out: dict[Any, dict[str, Any]] = {}
+        start = start_ms
+        while start <= end_ms:
+            end = min(start + _TRADES_MAX_INTERVAL_MS, end_ms)
+            cursor = start
+            while True:
+                rows = self.client.futures_account_trades(
+                    symbol=symbol,
+                    startTime=cursor,
+                    endTime=end,
+                    limit=_TRADES_PAGE_LIMIT,
+                )
+                for r in rows:
+                    out[r.get("id")] = r
+                if len(rows) < _TRADES_PAGE_LIMIT:
+                    break
+                last = max(int(r["time"]) for r in rows)
+                if last <= cursor:  # a full page inside one millisecond
+                    break
+                cursor = last
+            if end >= end_ms:
+                break
+            start = end + 1
+        return sorted(out.values(), key=lambda r: (int(r["time"]), r.get("id") or 0))
+
     # ----- writes -----
     def ensure_account_config(self, symbols: list[str], *, leverage: int) -> None:
         if self.mode == "dry_run":
@@ -213,6 +297,16 @@ class BinanceFuturesAdapter:
         """
         if intent.order_type == "LIMIT" and price is None:
             raise ValueError(f"LIMIT order requires a price: {intent.symbol}")
+        conditional = intent.order_type.upper() in _CONDITIONAL_TYPES
+        if conditional and intent.stop_price is None:
+            raise ValueError(
+                f"{intent.order_type} order requires a stop_price: {intent.symbol}"
+            )
+        if intent.close_position and not conditional:
+            # Binance accepts closePosition only on STOP_MARKET/TAKE_PROFIT_MARKET.
+            raise ValueError(
+                f"close_position needs a conditional type, got {intent.order_type}"
+            )
         if self.mode == "dry_run":
             return {
                 "dryRun": True,
@@ -223,15 +317,23 @@ class BinanceFuturesAdapter:
                 "orderType": intent.order_type,
                 "price": price,
                 "positionSide": intent.position_side,
+                "stopPrice": intent.stop_price,
+                "closePosition": intent.close_position,
             }
         params: dict[str, Any] = {
             "symbol": intent.symbol,
             "side": intent.side,
             "type": intent.order_type,
-            "quantity": intent.qty,
         }
+        if intent.close_position:
+            # closePosition closes the whole side at trigger and the exchange
+            # rejects it beside quantity or reduceOnly, in either position mode.
+            params["closePosition"] = "true"
+        else:
+            params["quantity"] = intent.qty
         if intent.position_side is None:
-            params["reduceOnly"] = intent.reduce_only
+            if not intent.close_position:
+                params["reduceOnly"] = intent.reduce_only
         else:
             # Hedge-mode: positionSide carries the direction and the account
             # REJECTS reduceOnly as a parameter (the side implies it).
@@ -239,8 +341,30 @@ class BinanceFuturesAdapter:
         if intent.order_type == "LIMIT":
             params["price"] = price
             params["timeInForce"] = "GTX"
+        if conditional:
+            # python-binance renames stopPrice to the algo route's triggerPrice.
+            # MARK_PRICE so a last-price wick does not fire the stop.
+            params["stopPrice"] = intent.stop_price
+            params["workingType"] = "MARK_PRICE"
         resp = self.client.futures_create_order(**params)
         return require_ack(intent.symbol, intent.order_type, resp)
+
+    def cancel_order(
+        self, symbol: str, *, order_id: int | None = None, algo_id: int | None = None
+    ) -> None:
+        """Cancel ONE order by id: `algo_id` for a conditional, `order_id` otherwise.
+
+        By id rather than symbol-wide, so it can never touch an order the
+        caller did not place.
+        """
+        if (order_id is None) == (algo_id is None):
+            raise ValueError("pass exactly one of order_id / algo_id")
+        if self.mode == "dry_run":
+            return
+        if algo_id is not None:
+            self.client.futures_cancel_order(symbol=symbol, algoId=algo_id)
+        else:
+            self.client.futures_cancel_order(symbol=symbol, orderId=order_id)
 
     def cancel_open_orders(self, symbol: str) -> None:
         if self.mode == "dry_run":

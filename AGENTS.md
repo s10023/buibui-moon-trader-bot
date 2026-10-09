@@ -395,6 +395,19 @@ the card's own `generated_at_ms`). Wrapped by
   symbol-wide); its header states the one-draw hazard — a TRADE verdict is one draw,
   never a measurement.
 
+### `buibui exits arm | disarm | status | watch | report`
+
+Exit manager v1 (#981, `trade/exit_manager.py`). The operator arms ONE position per
+(symbol, side); `watch --live` then rests a `closePosition` STOP_MARKET and ONE reduce-only
+GTX TP1 partial on the first poll that sees the entry fill, journals every fill on that side
+to `docs/plans/journal/exit-manager.jsonl`, and `report` prints the success metric (maker
+share of exit fills, fee R) against #916's baseline. **Operator edits win:** a moved, resized
+or cancelled exit stands the manager down for that position, and it never re-places or
+repairs anything. ⚠ **An `intent` row precedes every submit, so a run that dies mid-submit is
+stood down as UNKNOWN on the next poll, never placed twice — do not "simplify" it away.** A live
+watch refuses to start without Telegram unless `--no-telegram`, and a -2015 (the key's
+dynamic-IP allowlist) alerts once per outage. Without `--live` it places and records nothing.
+
 ### `make buibui-backup`
 
 Wraps `deploy/backup-analytics.sh` — a verified local snapshot of `analytics.db` plus the
