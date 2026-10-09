@@ -33,17 +33,12 @@ export PYTHONUTF8 = 1
 
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*")
 DOCKER_IMAGE = buibui-bot
-# ⚠ Resolved, not hardcoded. BOTH halves of this path vary by host -- the config root
-# (`~/.claude-personal` on the Linux box, `~/.claude` on the Windows laptop) and the
-# project slug, which the harness derives from the repo's ABSOLUTE PATH. Hardcoded, it
-# pointed at a tree that does not exist on this machine and `make status` reported the
-# index as 0 KB rather than saying it could not find it. `tools/memory_dir.py` is the
-# one resolver; `docs/plans/daily_check.py` reads the same one, where the identical
-# hardcoding had silently taken FIVE legs of the daily check offline.
-#
-# Recursively expanded (`=`, not `:=`) so the interpreter only starts when `status`
-# actually asks -- an immediate assignment would pay it on every make invocation.
-MEMORY = $(shell PYTHONPATH=. poetry run python tools/memory_dir.py 2>/dev/null)/MEMORY.md
+# ⚠ `status` resolves the memory tree, never hardcodes it. BOTH halves of the path vary
+# by host -- the config root (`~/.claude-personal` on the Linux box, `~/.claude` on the
+# Windows laptop) and the project slug, which the harness derives from the MAIN
+# checkout's absolute path (a worktree shares its owner's tree). `tools/memory_dir.py`
+# is the one resolver; it exits 1 with the paths it tried when no tree exists, and the
+# recipe then prints NOT FOUND instead of sizing a file that is not there.
 
 .PHONY: status skill-usage wait-ci wait-ci-main post-branch-checks post-branch-text sanity-checks preflight lint lint-md lint-md-fix docs-index docs-index-check lint-py-check lint-py typecheck test test-cov test-regression regression-update poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-analytics-backfill buibui-analytics-sync universe-backfill oi-archive-backfill buibui-backtest buibui-combo-backtest buibui-cross-tf-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web buibui-card-place buibui-card-orders web-install web-dev web-build web-preview web-full clean-db clean export-live-db buibui-portfolio-replay buibui-forecast-audit buibui-forecast-weight-study buibui-forecast-regime buibui-xsmom-audit buibui-combine-audit buibui-carry-audit buibui-xsmom-capacity-audit buibui-xsmom-targets buibui-xsmom-execute buibui-universe-sync buibui-xsmom-daily buibui-structural-touch-audit buibui-structural-entry-sim-audit buibui-warning-value-audit buibui-sl-horizon-audit buibui-weekly-path-audit buibui-indicator-condition-audit buibui-xsrev-audit buibui-decay-review buibui-dead-surface-check buibui-giveback-study buibui-occurrence-dump
 
@@ -82,7 +77,9 @@ status:
 	@printf '  markdown files    %s\n' "$$(npx markdownlint-cli2 2>&1 | grep -oE 'Linting: [0-9]+' | grep -oE '[0-9]+' || echo '?')"
 	@printf '  always-loaded     %s KB  (AGENTS.md %s + CLAUDE.md %s -- CLAUDE.md imports AGENTS.md, so BOTH load every session)\n' "$$(cat AGENTS.md CLAUDE.md | wc -c | awk '{printf "%.1f", $$1/1024}')" "$$(wc -c < AGENTS.md | awk '{printf "%.1f", $$1/1024}')" "$$(wc -c < CLAUDE.md | awk '{printf "%.1f", $$1/1024}')"
 	@printf '  handoff           %s lines\n' "$$(wc -l < docs/plans/next-conversation-prompt.md 2>/dev/null || echo 0)"
-	@printf '  MEMORY.md         %s KB, %s Current State bullets\n' "$$(wc -c < $(MEMORY) | awk '{printf "%.1f", $$1/1024}')" "$$(PYTHONPATH=. poetry run python -c 'import pathlib,sys; from tools.post_branch_checks import current_state_bullets; print(current_state_bullets(pathlib.Path(sys.argv[1]).read_text()))' $(MEMORY))"
+	@if mem="$$(PYTHONPATH=. poetry run python tools/memory_dir.py)/MEMORY.md"; then \
+		printf '  MEMORY.md         %s KB, %s Current State bullets\n' "$$(wc -c < "$$mem" | awk '{printf "%.1f", $$1/1024}')" "$$(PYTHONPATH=. poetry run python -c 'import pathlib,sys; from tools.post_branch_checks import current_state_bullets; print(current_state_bullets(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")))' "$$mem")"; \
+	else printf '  MEMORY.md         NOT FOUND (resolver output above)\n'; fi
 	@printf '  audits            %s\n' "$$(ls docs/audits/*.md | grep -vc INDEX)"
 	@printf '  skills            %s\n' "$$(ls -d .claude/skills/*/ | wc -l)"
 	@printf '  context docs      %s\n' "$$(ls .claude/context/*.md | wc -l)"
