@@ -12,9 +12,9 @@ haircut, one family per source).
 
 Substrate roles (pre-committed): ``backtest_trades`` = primary (verdicts
 gate); ``signal_alert_outcomes`` = corroboration only. Unlike the ST1 loader
-this one dedups backtest trades across saved runs on
-(symbol, tf, strategy, direction, signal_time), keeping the
-lexicographically-latest run_id. Read-only; no engine/live change.
+this one reads backtest trades through ``analytics.store.load_backtest_trades``,
+one row per (symbol, tf, strategy, direction, signal_time), newest run first.
+Read-only; no engine/live change.
 
 Run: ``PYTHONPATH=. poetry run python tools/warning_value_audit.py``
 (wrapped by ``make buibui-warning-value-audit``).
