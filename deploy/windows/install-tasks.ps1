@@ -196,8 +196,86 @@ foreach ($job in $Jobs) {
     }
 }
 
+# ---- long-running services ------------------------------------------------------------
+#
+# The five rows above are TIMED jobs. A service is the other shape: started once at boot,
+# runs until stopped, and is restarted if it dies. It gets its own list rather than a
+# sixth `@{ Unit = ... }` row because it has no systemd unit to translate from, and
+# `tests/test_task_probe.py` keys every `Unit =` row to one.
+#
+#   AtStartup (+30s)        the Windows analogue of `WantedBy=multi-user.target`; the delay
+#                           lets the network come up (the recorder backs off anyway)
+#   RestartOnFailure        1-minute interval, 999 tries. Fires on a NON-ZERO exit only,
+#                           so a clean `--stop` (exit 0) stays stopped
+#   ExecutionTimeLimit 0    unlimited. The 72h default would kill a healthy recorder
+#                           every three days
+#   MultipleInstances       IgnoreNew -- a second copy must never double-write the day file
+#
+# ⚠ STOPPING. `Stop-ScheduledTask` / "End" is a HARD KILL on Windows: the recorder gets no
+# chance to write its `disconnect` event. Use `python monitor/liq_recorder.py --stop`
+# instead (it drops a stop file the recorder polls once a second), then wait for the task
+# to read Ready. A hard kill is not data loss -- the next `connect` with no `disconnect`
+# before it is read as a restart and the dead time is counted as a gap.
+$Services = @(
+    @{ Task = 'buibui-liq-recorder'; Label = 'liq-recorder'; Hc = 'HEALTHCHECKS_URL_LIQ_RECORDER'; Env = ''; Command = '.venv/Scripts/python.exe monitor/liq_recorder.py'; StartDelaySeconds = 30; RestartCount = 999; RestartMinutes = 1 }
+)
+
+foreach ($svc in $Services) {
+    $envPrefix = if ($svc.Env) { "$($svc.Env) " } else { '' }
+    $inner = "$envPrefix" + "deploy/windows/job.sh $($svc.Label) $($svc.Hc) -- $($svc.Command)"
+    $action = New-ScheduledTaskAction -Execute $BashExe `
+        -Argument "-lc '$inner'" -WorkingDirectory $RepoRoot
+
+    $trigger = New-ScheduledTaskTrigger -AtStartup
+    $trigger.Delay = [System.Xml.XmlConvert]::ToString(
+        (New-TimeSpan -Seconds $svc.StartDelaySeconds))
+
+    $settings = New-ScheduledTaskSettingsSet `
+        -AllowStartIfOnBatteries `
+        -DontStopIfGoingOnBatteries `
+        -DontStopOnIdleEnd `
+        -StartWhenAvailable `
+        -MultipleInstances IgnoreNew `
+        -RestartCount $svc.RestartCount `
+        -RestartInterval (New-TimeSpan -Minutes $svc.RestartMinutes) `
+        -ExecutionTimeLimit ([TimeSpan]::Zero)
+
+    $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" `
+        -LogonType S4U -RunLevel Limited
+
+    if ($PSCmdlet.ShouldProcess("$TaskPath$($svc.Task)", 'Register-ScheduledTask')) {
+        Register-ScheduledTask -TaskPath $TaskPath -TaskName $svc.Task `
+            -Action $action -Trigger $trigger `
+            -Settings $settings -Principal $principal -Force | Out-Null
+
+        # Read the settings back: a restart policy that failed to register leaves a
+        # service that dies once and stays dead, and nothing would say so.
+        $xml = [xml](Export-ScheduledTask -TaskPath $TaskPath -TaskName $svc.Task)
+        $rof = $xml.Task.Settings.RestartOnFailure
+        $limit = $xml.Task.Settings.ExecutionTimeLimit
+        $wantInterval = 'PT{0}M' -f $svc.RestartMinutes
+        if ($rof.Count -ne "$($svc.RestartCount)" -or $rof.Interval -ne $wantInterval -or
+            ($limit -ne 'PT0S')) {
+            throw ("$($svc.Task): restart policy did not register as asked " +
+                   "(Count='$($rof.Count)' want '$($svc.RestartCount)', " +
+                   "Interval='$($rof.Interval)' want '$wantInterval', " +
+                   "ExecutionTimeLimit='$limit' want 'PT0S').")
+        }
+        Write-Host "registered $TaskPath$($svc.Task)  [at startup, restart on failure, no time limit]"
+        Write-Host "    start it now: Start-ScheduledTask -TaskPath '$TaskPath' -TaskName '$($svc.Task)'"
+    }
+    else {
+        Write-Host "would register $TaskPath$($svc.Task)  [at startup, restart on failure]"
+        Write-Host "    $BashExe -lc '$inner'"
+    }
+}
+
 Write-Host ''
 Write-Host 'Off-machine backup is registered but must NOT be trusted until'
 Write-Host 'BUIBUI_BACKUP_REMOTE is set in .env -- backup-offsite.sh exits 1 while it is'
 Write-Host 'unset, on purpose, so it complains daily rather than looking green while'
 Write-Host 'protecting nothing.'
+Write-Host ''
+Write-Host 'The liquidation recorder (buibui-liq-recorder) is registered but NOT started.'
+Write-Host "Start it: Start-ScheduledTask -TaskPath '$TaskPath' -TaskName 'buibui-liq-recorder'  (or reboot)"
+Write-Host "Stop it cleanly (NOT Stop-ScheduledTask, a hard kill): .venv\Scripts\python.exe monitor\liq_recorder.py --stop"

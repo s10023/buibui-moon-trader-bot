@@ -195,6 +195,32 @@ class TestLedgerGlobCoverage:
         assert copied.exists(), "the catch-up watermark was not backed up"
         assert copied.read_text(encoding="utf-8") == '{"BTCUSDT:15m:bos:4": 1}\n'
 
+    def test_the_liquidation_recorder_directory_is_covered(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        """#984: Binance serves no liquidation history, so the recorder's directory is
+        single-copy. It sits OUTSIDE `docs/plans/`, so no glob reaches it -- it needs
+        its own `LEDGER_DIRS` entry (a directory array: the file loops skip a directory
+        silently), in the real copy AND the dry-run report."""
+        d = fake_repo / "data" / "liquidations"
+        d.mkdir(parents=True)
+        (d / "2026-10-08.jsonl.gz").write_bytes(b"gz")
+        (d / "2026-10-09.jsonl").write_text(
+            '{"t":"heartbeat","ts":1}\n', encoding="utf-8"
+        )
+
+        dry = _run(fake_repo, tmp_path, "--dry-run")
+        assert dry.returncode == 0, dry.stdout + dry.stderr
+        assert "dir        data/liquidations" in dry.stdout
+
+        r = _run(fake_repo, tmp_path)
+        assert r.returncode == 0, r.stdout + r.stderr
+        snap = sorted((tmp_path / "backups" / "daily").iterdir())[-1]
+        assert (
+            snap / "data" / "liquidations" / "2026-10-08.jsonl.gz"
+        ).read_bytes() == b"gz"
+        assert (snap / "data" / "liquidations" / "2026-10-09.jsonl").exists()
+
     def test_a_directory_under_plans_is_not_copied_as_a_file(
         self, fake_repo: Path, tmp_path: Path
     ) -> None:

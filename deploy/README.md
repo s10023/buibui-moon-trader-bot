@@ -525,7 +525,7 @@ adapter for what Task Scheduler genuinely cannot do, and nothing else:
 ### Prerequisites
 
 - **Git for Windows** — supplies `bash`, `curl` and the coreutils every deploy script
-  needs. The installer defaults to `C:\Program Files\Gitinash.exe`; pass
+  needs. The installer defaults to `C:\Program Files\Git\bin\bash.exe`; pass
   `-BashExe` if yours is elsewhere.
 - **Python 3.13** (`pyproject.toml` pins `>=3.13,<3.14` — 3.11 or 3.12 will not resolve),
   Poetry, `node`, `ffmpeg`, `rclone`.
@@ -538,8 +538,8 @@ adapter for what Task Scheduler genuinely cannot do, and nothing else:
 powershell -ExecutionPolicy Bypass -File deploy\windows\install-tasks.ps1 -WhatIf   # look first
 powershell -ExecutionPolicy Bypass -File deploy\windows\install-tasks.ps1
 
-Get-ScheduledTask -TaskPath 'uibui' | Format-Table TaskName, State
-Get-ScheduledTaskInfo -TaskPath 'uibui' -TaskName 'buibui-signal-watch'
+Get-ScheduledTask -TaskPath '\buibui\' | Format-Table TaskName, State
+Get-ScheduledTaskInfo -TaskPath '\buibui\' -TaskName 'buibui-signal-watch'
 ```
 
 The off-site backup is registered with the rest but **must not be trusted until
@@ -605,6 +605,28 @@ tail -f logs/daily-check.log
 Gitignored, one file per job, trimmed to `BUIBUI_LOG_MAX_LINES` (2000) after every run —
 the cap keeps the Linux side's promise that nothing grows unmanaged on a laptop. The
 trim keeps the END, where the failure is.
+
+### The liquidation recorder (a service, not a timer)
+
+`install-tasks.ps1` also registers `\buibui\buibui-liq-recorder` (#984), the one task that
+is not a timed job: an at-startup trigger (+30s), restart-on-failure every minute (999
+tries), no execution time limit, `MultipleInstances IgnoreNew`. It runs
+`monitor/liq_recorder.py` through `job.sh`, so a crash reaches Telegram and the log is
+`logs/liq-recorder.log`. The installer reads the restart policy back and throws if it did
+not register.
+
+- **Start it** after install (`Start-ScheduledTask -TaskPath '\buibui\' -TaskName
+  'buibui-liq-recorder'`) or reboot.
+- **Stop it with `python monitor/liq_recorder.py --stop`**, not `Stop-ScheduledTask`: that is
+  a hard kill and the recorder cannot write its `disconnect`. The stop file exits 0, so
+  restart-on-failure leaves it stopped. A hard kill loses nothing: the next `connect` with
+  no `disconnect` before it is counted as a gap.
+- **Health:** `python monitor/liq_recorder.py --status` (exit 1 when unhealthy). The
+  tier-1 `daily_check.py` line is `analytics.liquidations.daily_check_line()`.
+- **Backup:** `data/liquidations` is in `LEDGER_DIRS` of `backup-analytics.sh`. Binance serves
+  no history, so a lost day cannot be re-fetched.
+- **Laptop downtime is the cost of this host**: sleep, reboots and Windows Update each show
+  up as a gap window, which the reader flags rather than hides.
 
 ### What this host still does not have
 
