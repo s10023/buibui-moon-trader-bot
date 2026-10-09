@@ -322,7 +322,8 @@ pasted, then run the flow once over the whole set.
      both legs in `entry` — never the two contradictory directional rows, which
      mechanically hedge the author's own sample. A genuine flip is a new directional
      row, not a conflict; the discriminator is the source's own framing. Exemplar
-     and the retroactive-routing bar: `ingest-video/SKILL.md`'s copy of this rule.
+     and the retroactive-routing bar: `/ingest-video`'s copy of this rule, in
+     `references/pass-2-field-rules.md`.
    - **`horizon`** — an unrecognised value used to take the 14-day `unspecified`
      window instead of intraday's 48h or swing's 30d, changing the
      WIN / LOSS / NOT_TRIGGERED verdict for the same call. **Absence is fine here and
