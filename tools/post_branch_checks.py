@@ -1198,6 +1198,17 @@ UNCOVERED_STEPS: tuple[tuple[str, str], ...] = (
 )
 
 
+def _wrap_keeping_code(text: str, width: int) -> list[str]:
+    """``textwrap.wrap`` that never breaks inside a backtick span.
+
+    A break inside a span splits a command the reader would copy, and where it
+    lands moves whenever a label's width does: renumbering the skill's steps
+    shortened the widest label and split `gh pr create` across two lines.
+    """
+    held = re.sub(r"`[^`]*`", lambda m: m.group(0).replace(" ", "\x00"), text)
+    return [line.replace("\x00", " ") for line in textwrap.wrap(held, width=width)]
+
+
 def uncovered_notice() -> list[str]:
     """The closing line: what a green sweep says nothing about.
 
@@ -1215,7 +1226,7 @@ def uncovered_notice() -> list[str]:
     # Telegram renderer folds to 46 columns to avoid.
     indent = " " * (6 + width + 2)
     for label, what in UNCOVERED_STEPS:
-        wrapped = textwrap.wrap(what, width=72 - width)
+        wrapped = _wrap_keeping_code(what, 72 - width)
         out.append(f"      {label:<{width}}  {wrapped[0]}")
         out.extend(f"{indent}{line}" for line in wrapped[1:])
     out += [
