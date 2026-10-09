@@ -140,6 +140,9 @@ LEAKAGE_EXEMPT: dict[str, str] = {
     "sanity-check/SKILL.md": "quotes the pattern in order to hunt for it",
     "ingest-feed/SKILL.md": "names the fork's note tree deliberately, as the fork's",
     "ingest-video/SKILL.md": "names the fork's note tree deliberately, as the fork's",
+    "ingest-video/references/sibling-repo-check.md": (
+        "the step-2b text moved out of ingest-video/SKILL.md (#884); same reason"
+    ),
 }
 
 #: `.claude/context/` documents real legacy code paths by design.
