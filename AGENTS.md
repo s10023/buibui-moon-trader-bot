@@ -1289,6 +1289,15 @@ GH_TOKEN=$(gh auth token --user s10023) gh repo edit s10023/buibui-moon-trader-b
   --visibility private --accept-visibility-change-consequences
 ```
 
+The operator's terminal on the Windows host is PowerShell, where the `VAR=$(…) cmd` prefix
+is not a command at all. Hand over this form there; `Remove-Item` drops the token so the
+window's later `gh` calls fall back to the default account:
+
+```powershell
+$env:GH_TOKEN = gh auth token --user s10023; gh repo edit s10023/buibui-moon-trader-bot --visibility public --accept-visibility-change-consequences; Remove-Item Env:GH_TOKEN
+$env:GH_TOKEN = gh auth token --user s10023; gh repo edit s10023/buibui-moon-trader-bot --visibility private --accept-visibility-change-consequences; Remove-Item Env:GH_TOKEN
+```
+
 ⚠ **THE OPERATOR RUNS BOTH COMMANDS — a session cannot.** `gh repo edit --visibility` is
 blocked by the permission classifier in BOTH directions, so hand the command over and WAIT
 rather than discovering it mid-chain (#669: it surfaced with the branch pushed and the PR

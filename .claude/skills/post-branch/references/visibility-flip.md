@@ -42,6 +42,13 @@ GH_TOKEN=$(gh auth token --user s10023) gh repo edit s10023/buibui-moon-trader-b
   --visibility public --accept-visibility-change-consequences
 ```
 
+On the Windows host the operator's terminal is PowerShell, which rejects the bash prefix.
+Hand over this form there (`private` for the flip back):
+
+```powershell
+$env:GH_TOKEN = gh auth token --user s10023; gh repo edit s10023/buibui-moon-trader-bot --visibility public --accept-visibility-change-consequences; Remove-Item Env:GH_TOKEN
+```
+
 **Confirm it landed before creating the PR** — `gh repo view … --json visibility` is a read
 and is not blocked. Never assume the flip happened because you printed the command.
 
