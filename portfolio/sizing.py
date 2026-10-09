@@ -45,9 +45,8 @@ STREAK_ALPHA = 0.05
 """#915 rule 4: k is the smallest losing streak with P(run >= k in N) <= this."""
 
 STREAK_TABLE_N = (100, 250, 500, 1000, 2000)
-"""The N rows of #914's streak table (docs/research/2026-10-07-streak-sizing.md
-on branch `research/streak-sizing`). #915 rounds a book's expected 12-month
-bet count UP to the next row."""
+"""The N rows of #914's streak table (docs/research/2026-10-07-streak-sizing.md).
+#915 rounds a book's expected 12-month bet count UP to the next row."""
 
 MANUAL_BOOK_N = 100
 """#915 rule 4: the manual book's N. A bot construction's N is written into

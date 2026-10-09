@@ -37,7 +37,7 @@ from portfolio.sizing import (
 )
 
 # #914's alpha = 5% table, k per (N row, p column), copied from
-# docs/research/2026-10-07-streak-sizing.md (branch `research/streak-sizing`).
+# docs/research/2026-10-07-streak-sizing.md.
 # A test fixture, not a source: production computes k, this pins it.
 _ISSUE_914_P = (0.35, 0.40, 0.45, 0.50, 0.55, 0.60)
 _ISSUE_914_K_ALPHA_5 = {
