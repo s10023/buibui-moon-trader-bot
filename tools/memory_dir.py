@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tools.claude_home import (  # noqa: E402
     CONFIG_DIR_NAMES,
     config_roots,
-    project_slug,
+    main_checkout,
     slugify_path,
 )
 
@@ -80,8 +80,10 @@ class MemoryDirNotFoundError(FileNotFoundError):
 def memory_dir(repo_root: Path | None = None, *, home: Path | None = None) -> Path:
     """The memory tree for `repo_root`. Raises `MemoryDirNotFoundError` when none exists.
 
-    The slug is the MAIN checkout's (`tools.claude_home.project_slug`), because that is
-    where the harness keeps memory for every worktree of the repo. This used to slug
+    The slug is the MAIN checkout's (`tools.claude_home.main_checkout`), because that is
+    where the harness keeps memory for every worktree of the repo. `repo_root` is NOT
+    re-resolved: on Linux a Windows literal is a relative path, and `.resolve()` would
+    prefix the cwd (CI caught exactly that). This used to slug
     `repo_root` itself and, finding nothing from a worktree, RETURN the legacy
     ``~/.claude-personal/projects/-home-kng-.../memory`` -- a path that does not exist
     on the Windows laptop, printed as though it were the answer. Every consumer then
@@ -94,7 +96,7 @@ def memory_dir(repo_root: Path | None = None, *, home: Path | None = None) -> Pa
     """
     roots = config_roots(home)
     root = REPO_ROOT if repo_root is None else repo_root
-    derived = project_slug(root)
+    derived = slug_for(main_checkout(root))
 
     tried: list[Path] = []
     for config_root in roots:

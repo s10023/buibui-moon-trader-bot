@@ -121,6 +121,16 @@ class TestResolution:
 
         assert memory_dir(WINDOWS_REPO, home=tmp_path) == planted
 
+    def test_a_path_is_slugged_as_given_not_resolved_against_the_cwd(
+        self, tmp_path: Path
+    ) -> None:
+        """On Linux `Path(r"C:\\...")` is RELATIVE, so resolving it prefixes the cwd and
+        the Windows-root case above stops matching -- CI's one red on PR #998, which a
+        Windows run cannot see. A relative literal reproduces it on every OS."""
+        planted = _plant(tmp_path, ".claude", "rel-repo")
+
+        assert memory_dir(Path("rel/repo"), home=tmp_path) == planted
+
     def test_the_legacy_root_wins_when_both_exist(self, tmp_path: Path) -> None:
         """A host holding both must not be quietly repointed at the second tree."""
         legacy = _plant(tmp_path, ".claude-personal", LEGACY_SLUG)
