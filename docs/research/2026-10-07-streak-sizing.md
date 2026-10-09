@@ -213,25 +213,27 @@ Markov chain for the exact streak probability (state = current losing-run length
 ```python
 import numpy as np
 
+
 def p_run_dp(n: int, k: int, q: float) -> float:
     """P(at least one run of >= k consecutive losses in n independent trades), loss prob q."""
     p = 1.0 - q
     v = np.zeros(k)
-    v[0] = 1.0                      # v[j] = P(current losing run is j), j = 0..k-1
+    v[0] = 1.0  # v[j] = P(current losing run is j), j = 0..k-1
     absorbed = 0.0
     for _ in range(n):
-        absorbed += q * v[k - 1]    # a loss from run length k-1 reaches k and is absorbed
+        absorbed += q * v[k - 1]  # a loss from run length k-1 reaches k and is absorbed
         new = np.empty(k)
-        new[0] = p * v.sum()        # a win resets every state to 0
-        new[1:] = q * v[:-1]        # a loss extends the run by one
+        new[0] = p * v.sum()  # a win resets every state to 0
+        new[1:] = q * v[:-1]  # a loss extends the run by one
         v = new
     return absorbed
 
+
 def smallest_k(n: int, q: float, alpha: float) -> int:
     k = 1
-    while p_run_dp(n, k, q) > alpha:   # P(run >= k) is non-increasing in k
+    while p_run_dp(n, k, q) > alpha:  # P(run >= k) is non-increasing in k
         k += 1
-    return k                           # f = 1 / k
+    return k  # f = 1 / k
 ```
 
 - f table: `smallest_k(N, 1 - p, alpha)` for each cell; each boundary was asserted (k meets the tolerance, k − 1 does not).
