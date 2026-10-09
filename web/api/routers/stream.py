@@ -1,18 +1,22 @@
-"""SSE streaming router — GET /api/stream/prices, /api/stream/positions."""
+"""SSE streaming router — GET /api/stream/prices, /api/stream/positions.
+
+POST /api/stream/session trades a Bearer token for the cookie the streams read.
+"""
 
 import asyncio
 import json
+import os
 from collections.abc import AsyncGenerator
 from typing import Any
 
 from binance.client import Client
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response, status
 from fastapi.responses import StreamingResponse
 
 from monitor.position_lib import fetch_open_positions
 from monitor.price_lib import get_price_changes
 from utils.binance_client import load_coins_config
-from web.api.deps import get_client, require_token_sse
+from web.api.deps import SSE_COOKIE, get_client, require_token, require_token_sse
 from web.api.models.positions import PositionsResponse
 from web.api.routers.positions import row_to_position
 
@@ -89,6 +93,28 @@ async def _positions_event_generator(client: Client) -> AsyncGenerator[str]:
             await asyncio.sleep(_POSITIONS_INTERVAL_S)
     except asyncio.CancelledError:
         return
+
+
+@router.post(
+    "/stream/session",
+    dependencies=[Depends(require_token)],
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def stream_session(response: Response) -> None:
+    """Set the SSE auth cookie for a Bearer-authenticated caller.
+
+    EventSource cannot send headers, so this cookie is how the browser streams
+    authenticate without putting the token in the URL. HttpOnly keeps it from
+    scripts, SameSite=Strict from cross-site requests, and the path scopes it
+    to the stream endpoints.
+    """
+    response.set_cookie(
+        SSE_COOKIE,
+        os.environ.get("API_TOKEN", ""),
+        httponly=True,
+        samesite="strict",
+        path="/api/stream",
+    )
 
 
 @router.get("/stream/prices", dependencies=[Depends(require_token_sse)])

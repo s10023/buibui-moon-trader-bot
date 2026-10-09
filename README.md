@@ -1317,18 +1317,25 @@ poetry run python buibui.py web
 # instead of serving /api/active-config empty and reading as "no config".
 poetry run python buibui.py web --config config/signal_watch.toml
 
-# Custom host/port with auto-reload for development
-poetry run python buibui.py web --host 0.0.0.0 --port 8000 --reload
+# Custom port with auto-reload for development (binds 127.0.0.1)
+poetry run python buibui.py web --port 8000 --reload
 
-# Or via Makefile (override PORT and/or CONFIG)
+# Or via Makefile (override PORT and/or CONFIG); also binds 127.0.0.1
 make buibui-web
 make buibui-web PORT=8080
 make buibui-web CONFIG=config/signal_watch.toml
 make web-full CONFIG=config/signal_watch.toml   # build UI then start server
+
+# Expose beyond this machine: explicit opt-in only. The dashboard serves live
+# positions and account data, so never do this on a shared network.
+make buibui-web WEB_HOST=0.0.0.0
 ```
 
 **Authentication:** All endpoints except `/api/health` require a Bearer token. Set `API_TOKEN` in `.env`.
-SSE stream endpoints accept `?token=<API_TOKEN>` query param instead (browser `EventSource` cannot send headers).
+SSE stream endpoints take the token as a Bearer header or as the HttpOnly `buibui_sse` cookie, which
+`POST /api/stream/session` sets for a Bearer-authenticated caller (browser `EventSource` cannot send headers).
+They never read it from the query string, so it stays out of URLs and logs, and with `API_TOKEN` unset they
+refuse every connection unless `BUIBUI_WEB_DEV_NO_AUTH=1` opts in.
 
 **Endpoints:**
 
@@ -1344,8 +1351,9 @@ SSE stream endpoints accept `?token=<API_TOKEN>` query param instead (browser `E
 | `POST` | `/api/backtest` | Run a backtest (auto-saved to DB) for a symbol/timeframe/strategy |
 | `GET` | `/api/positions` | Fetch open futures positions |
 | `GET` | `/api/prices` | Latest price changes for all configured symbols |
-| `GET` | `/api/stream/prices` | SSE — live prices every 5 s (`?token=`) |
-| `GET` | `/api/stream/positions` | SSE — live positions every 10 s (`?token=`) |
+| `POST` | `/api/stream/session` | Set the SSE auth cookie (Bearer auth) |
+| `GET` | `/api/stream/prices` | SSE — live prices every 5 s (header or cookie auth) |
+| `GET` | `/api/stream/positions` | SSE — live positions every 10 s (header or cookie auth) |
 | `GET` | `/api/stats/{symbol}` | Computed stats bundle (P1/P2, ADR, DOW, session, weekly) for a symbol |
 | `GET` | `/api/live-outcomes` | Cross-symbol roll-up of fired-alert outcomes from `signal_alert_outcomes` (win/loss/avg-R per strategy×tf×direction, both the per-strategy and per-cell groupings also carrying win/loss/expired counts; optional `symbol` query param scopes the roll-up to one symbol) |
 | `GET` | `/api/live-outcomes/open` | Unresolved alerts marked to the live price (`?symbol=`); degrades to `marks_ok=false` with null price columns when the price feed is unavailable |
