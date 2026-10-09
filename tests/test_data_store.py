@@ -646,12 +646,104 @@ class TestUpsertBacktestTrades:
         assert row[0] == "win"
         assert abs(row[1] - 2.0) < 1e-9
 
-    def test_empty_trades_is_noop(self, conn: duckdb.DuckDBPyConnection) -> None:
+    def test_empty_trades_writes_nothing(self, conn: duckdb.DuckDBPyConnection) -> None:
         result = _FakeResult("BTCUSDT", "4h", "bos")
         result.trades = []
         run_id = upsert_backtest_run(conn, result, **_BT_PARAMS)
         upsert_backtest_trades(conn, result, run_id)
         assert _one(conn, "SELECT COUNT(*) FROM backtest_trades")[0] == 0
+
+    def test_rewrite_leaves_exactly_the_new_set(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        """#949: signal times the new set dropped must not survive the rewrite."""
+        old = _FakeResult("BTCUSDT", "4h", "bos")
+        run_id = upsert_backtest_run(conn, old, **_BT_PARAMS)
+        upsert_backtest_trades(conn, old, run_id)
+        old_times = {t.signal_time for t in old.trades}
+
+        new = _FakeResult("BTCUSDT", "4h", "bos")
+        # Keep one old signal time, drop the other, add a brand-new one.
+        new.trades = [
+            new.trades[0],
+            _FakeTrade(
+                1_700_020_000_000,
+                1_700_023_600_000,
+                30200.0,
+                "short",
+                30800.0,
+                29000.0,
+                "win",
+                2.0,
+            ),
+        ]
+        upsert_backtest_trades(conn, new, run_id)
+
+        stored = {
+            r[0]
+            for r in conn.execute(
+                "SELECT signal_time FROM backtest_trades WHERE run_id = ?", [run_id]
+            ).fetchall()
+        }
+        assert stored == {t.signal_time for t in new.trades}
+        assert not (old_times - {new.trades[0].signal_time}) & stored
+
+    def test_empty_rewrite_clears_old_rows(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        result = _FakeResult("BTCUSDT", "4h", "bos")
+        run_id = upsert_backtest_run(conn, result, **_BT_PARAMS)
+        upsert_backtest_trades(conn, result, run_id)
+        assert _one(conn, "SELECT COUNT(*) FROM backtest_trades")[0] == 2
+
+        result.trades = []
+        upsert_backtest_trades(conn, result, run_id)
+        assert _one(conn, "SELECT COUNT(*) FROM backtest_trades")[0] == 0
+
+    def test_other_runs_are_untouched(self, conn: duckdb.DuckDBPyConnection) -> None:
+        result = _FakeResult("BTCUSDT", "4h", "bos")
+        run_a = upsert_backtest_run(conn, result, **_BT_PARAMS)
+        run_b = upsert_backtest_run(conn, result, **{**_BT_PARAMS, "sl_pct": 0.03})
+        assert run_a != run_b
+        upsert_backtest_trades(conn, result, run_a)
+        upsert_backtest_trades(conn, result, run_b)
+
+        result.trades = result.trades[:1]
+        upsert_backtest_trades(conn, result, run_a)
+
+        counts = dict(
+            conn.execute(
+                "SELECT run_id, COUNT(*) FROM backtest_trades GROUP BY run_id"
+            ).fetchall()
+        )
+        assert counts == {run_a: 1, run_b: 2}
+
+    def test_failed_insert_rolls_the_delete_back(
+        self, conn: duckdb.DuckDBPyConnection, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result = _FakeResult("BTCUSDT", "4h", "bos")
+        run_id = upsert_backtest_run(conn, result, **_BT_PARAMS)
+        upsert_backtest_trades(conn, result, run_id)
+        before = conn.execute(
+            "SELECT trade_id, signal_time, pnl_r FROM backtest_trades ORDER BY 1"
+        ).fetchall()
+
+        def _broken(table: str, row: dict[str, Any], view: str) -> str:
+            return f"INSERT INTO {table} (no_such_column) SELECT 1 FROM {view}"
+
+        monkeypatch.setattr("analytics.store.backtest_runs._insert_sql", _broken)
+        result.trades = result.trades[:1]
+        with pytest.raises(duckdb.Error):
+            upsert_backtest_trades(conn, result, run_id)
+
+        after = conn.execute(
+            "SELECT trade_id, signal_time, pnl_r FROM backtest_trades ORDER BY 1"
+        ).fetchall()
+        assert after == before
+        # The connection is usable again (no transaction left open).
+        monkeypatch.undo()
+        upsert_backtest_trades(conn, result, run_id)
+        assert _one(conn, "SELECT COUNT(*) FROM backtest_trades")[0] == 1
 
     def test_volume_flags_persist(self, conn: duckdb.DuckDBPyConnection) -> None:
         result = _FakeResult("BTCUSDT", "4h", "bos")

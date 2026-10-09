@@ -275,13 +275,27 @@ def upsert_backtest_trades(
     result: Any,
     run_id: str,
 ) -> None:
-    """Insert or replace per-trade rows for a backtest run.
+    """Replace a backtest run's WHOLE trade set with ``result.trades``.
 
-    result must be a BacktestResult instance.
-    Skips if result.trades is empty.
+    result must be a BacktestResult instance, and must carry the run's complete
+    trade set (every caller writes a run in one call) — an incremental slice
+    would erase the rest.
+
+    ⚠ **REPLACE, not accumulate.** Rows are keyed ``run_id:signal_time``, so a
+    bare ``INSERT OR REPLACE`` overwrote only the signal times the new set
+    shared with the old one. When a detector changed WHICH candles it signals
+    on under an unchanged ``run_id`` (same config axes), the old signal times
+    survived beside the new ones: after the 2026-08-18 ``bos`` /
+    ``liquidity_sweep`` causality fix, 77-84% of the rows in the post-fix
+    ``bos`` runs were pre-fix signals while the ``backtest_runs`` aggregate
+    matched only the causal rows (#949). The delete and the insert share one
+    transaction, so a failed insert rolls the delete back rather than leaving
+    the run empty.
+
+    An EMPTY ``result.trades`` still clears the run's old rows: a run that now
+    has zero trades must not keep the stale ones, so this branch deletes
+    instead of returning early. Rows of other ``run_id`` s are never touched.
     """
-    if not result.trades:
-        return
     rows = [
         {
             "trade_id": f"{run_id}:{t.signal_time}",
@@ -305,11 +319,23 @@ def upsert_backtest_trades(
         for t in result.trades
     ]
     df = pd.DataFrame(rows)
-    conn.register("_bt_trades_upsert_df", df)
+    if rows:
+        conn.register("_bt_trades_upsert_df", df)
     try:
-        conn.execute(_insert_sql("backtest_trades", rows[0], "_bt_trades_upsert_df"))
+        conn.execute("BEGIN TRANSACTION")
+        try:
+            conn.execute("DELETE FROM backtest_trades WHERE run_id = ?", [run_id])
+            if rows:
+                conn.execute(
+                    _insert_sql("backtest_trades", rows[0], "_bt_trades_upsert_df")
+                )
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+        conn.execute("COMMIT")
     finally:
-        conn.unregister("_bt_trades_upsert_df")
+        if rows:
+            conn.unregister("_bt_trades_upsert_df")
 
 
 def list_backtest_runs(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
