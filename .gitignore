@@ -45,6 +45,11 @@ config/x_authors.toml
 # Local planning docs — personal notes, not for public repo
 docs/plans/
 
+# Forward-recorded Binance liquidations (#984): single-copy evidence, backed up through
+# deploy/backup-analytics.sh LEDGER_DIRS. Only the notes beside it are tracked.
+data/liquidations/*
+!data/liquidations/README.md
+
 # DuckDB data files
 *.db
 *.db.wal

@@ -166,6 +166,11 @@ LEDGER_DIRS=(
     "docs/plans/scratch"
     "docs/plans/chart-drops"
     "docs/plans/xsmom_targets"
+    # Forward-recorded Binance liquidations (#984). Binance serves no liquidation
+    # history, so every day lost is lost for good: single-copy and NOT reconstructible.
+    # A DIRECTORY, so it belongs here and never in a file array. The live day's
+    # `.jsonl` is copied mid-append; the reader skips a torn last line.
+    "data/liquidations"
     # The gitignored enforcement layer: hooks, settings, and the pre-flip
     # sensitive-terms list. All single-copy, all dead on a reclone, and the
     # term list is what stops `sensitive-terms` degrading to NOT CONFIGURED.

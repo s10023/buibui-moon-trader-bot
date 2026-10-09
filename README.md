@@ -123,7 +123,7 @@ buibui-moon-trader-bot/
 ├── card/                # F2 AI trade card
 ├── portfolio/           # P1 paper-portfolio sizing + replay
 ├── trade/               # Execution layer: XS live wiring, routing, risk overlay
-├── monitor/             # Live price / position monitors
+├── monitor/             # Live price / position monitors + the liquidation recorder
 ├── web/                 # FastAPI backend (api/) + Svelte 5 UI (ui/)
 ├── tools/               # One-shot analysis + audit scripts
 ├── utils/               # Shared clients, Telegram, config validation
@@ -1260,6 +1260,24 @@ make buibui-signal-test CONFIG=config/signal_watch.toml STRATEGY=marubozu TIMEFR
 - `--telegram` — send the alert via Telegram (in addition to printing)
 
 > **Note:** `smt_divergence` is supported — the secondary symbol is resolved automatically from `coins.json` (`smt_secondary` field). No extra flag needed.
+
+### Liquidation Recorder — Forward Binance Liquidations
+
+Binance serves no liquidation history, so `monitor/liq_recorder.py` records the
+`!forceOrder@arr` stream forward (Issue #984): every raw frame, plus connect / disconnect /
+reconnect events and a 60s heartbeat, goes to `data/liquidations/<UTC-day>.jsonl` (gzipped
+when the day rotates). It never touches `analytics.db`.
+
+```bash
+python monitor/liq_recorder.py                 # run (Task Scheduler runs this at startup)
+python monitor/liq_recorder.py --status        # last-heartbeat age + gap minutes, exit 1 if unhealthy
+python monitor/liq_recorder.py --stop          # clean stop (Stop-ScheduledTask is a hard kill)
+```
+
+The stream is a **sample by construction**: at most one liquidation per symbol per 1000ms.
+A *gap* is a window with no heartbeat for over 2 minutes or a down connection, never a quiet
+market. `analytics.liquidations.load_orders()` returns the orders with an `in_gap` flag;
+`daily_check_line()` is the tier-1 line. Details: `data/liquidations/README.md`.
 
 ### Web API — FastAPI Backend
 
