@@ -6,7 +6,12 @@ from unittest.mock import MagicMock
 import pytest
 
 from portfolio.sizing import round_to_tick
-from trade.binance_futures import BinanceFuturesAdapter
+from trade.binance_futures import (
+    APIError,
+    BinanceFuturesAdapter,
+    UnconfirmedOrderError,
+    require_ack,
+)
 from trade.routing import OrderIntent
 
 
@@ -14,6 +19,13 @@ class _APIError(Exception):
     def __init__(self, code: int) -> None:
         super().__init__(f"code {code}")
         self.code = code
+
+
+def _live_client() -> MagicMock:
+    """A client whose order endpoint acknowledges like Binance's classic route."""
+    client = MagicMock()
+    client.futures_create_order.return_value = {"orderId": 1, "status": "NEW"}
+    return client
 
 
 def test_get_positions_parses_signed_amt() -> None:
@@ -145,7 +157,7 @@ def test_get_book_tops_drops_non_positive_quotes() -> None:
 
 
 def test_submit_limit_sends_gtx_post_only() -> None:
-    client = MagicMock()
+    client = _live_client()
     adapter = BinanceFuturesAdapter(client, mode="live")
     intent = OrderIntent("AAAUSDT", "BUY", 2.0, False, 200.0, "open", "LIMIT")
     adapter.submit(intent, price=99.98)
@@ -166,7 +178,7 @@ def test_submit_limit_price_from_realistic_quote_is_not_over_precise() -> None:
     `round_to_tick`'s own test suite for why that distinction is load-bearing.
     Pre-fix this price is `45817.600000000006`; post-fix `45817.6`.
     """
-    client = MagicMock()
+    client = _live_client()
     adapter = BinanceFuturesAdapter(client, mode="live")
     price = round_to_tick(float("45817.6"), 0.1, "BUY")
     intent = OrderIntent("BTCUSDT", "BUY", 0.01, False, 458.176, "open", "LIMIT")
@@ -180,7 +192,7 @@ def test_submit_limit_price_from_realistic_quote_is_not_over_precise() -> None:
 
 
 def test_submit_market_omits_price_and_tif() -> None:
-    client = MagicMock()
+    client = _live_client()
     adapter = BinanceFuturesAdapter(client, mode="live")
     intent = OrderIntent("AAAUSDT", "SELL", 2.0, True, -200.0, "close", "MARKET")
     adapter.submit(intent)
@@ -192,7 +204,7 @@ def test_submit_market_omits_price_and_tif() -> None:
 
 def test_submit_limit_without_price_raises() -> None:
     """A LIMIT with no price is a caller bug — fail loudly, never silently market."""
-    client = MagicMock()
+    client = _live_client()
     adapter = BinanceFuturesAdapter(client, mode="live")
     intent = OrderIntent("AAAUSDT", "BUY", 2.0, False, 200.0, "open", "LIMIT")
     with pytest.raises(ValueError, match="LIMIT order requires a price"):
@@ -263,7 +275,7 @@ def test_get_open_order_symbols_dry_run_hits_the_api() -> None:
 
 
 def test_cancel_open_orders_calls_per_symbol() -> None:
-    client = MagicMock()
+    client = _live_client()
     adapter = BinanceFuturesAdapter(client, mode="live")
     adapter.cancel_open_orders("AAAUSDT")
     client.futures_cancel_all_open_orders.assert_called_once_with(symbol="AAAUSDT")
@@ -277,7 +289,7 @@ def test_cancel_open_orders_dry_run_is_a_noop() -> None:
 
 
 def test_submit_limit_hedge_mode_sends_position_side_and_omits_reduce_only() -> None:
-    client = MagicMock()
+    client = _live_client()
     adapter = BinanceFuturesAdapter(client, mode="live")
     intent = OrderIntent(
         "AAAUSDT", "BUY", 2.0, False, 200.0, "card", "LIMIT", position_side="LONG"
@@ -290,7 +302,7 @@ def test_submit_limit_hedge_mode_sends_position_side_and_omits_reduce_only() -> 
 
 
 def test_submit_one_way_shape_is_unchanged_when_position_side_absent() -> None:
-    client = MagicMock()
+    client = _live_client()
     adapter = BinanceFuturesAdapter(client, mode="live")
     intent = OrderIntent("AAAUSDT", "SELL", 2.0, False, -200.0, "open", "LIMIT")
     adapter.submit(intent, price=99.98)
@@ -312,3 +324,34 @@ def test_api_error_binds_to_the_client_library_not_the_local_shim() -> None:
     import trade.binance_futures as mod
 
     assert mod.APIError.__module__.startswith("binance")
+
+
+# ----- #829: a 2xx response is accepted only when it carries its route's id -----
+
+
+def test_require_ack_reads_the_id_each_route_acknowledges_with() -> None:
+    """python-binance routes conditionals to /algoOrder, which answers `algoId`."""
+    assert require_ack("X", "LIMIT", {"orderId": 7})["orderId"] == 7
+    assert require_ack("X", "STOP_MARKET", {"algoId": 9})["algoId"] == 9
+    with pytest.raises(UnconfirmedOrderError):
+        require_ack("X", "STOP_MARKET", {"orderId": 9})
+    with pytest.raises(UnconfirmedOrderError):
+        require_ack("X", "LIMIT", {"algoId": 7})
+
+
+def test_submit_raises_unconfirmed_on_an_error_body_served_as_http_200() -> None:
+    """python-binance raises only on a non-2xx status, so this body arrives as a dict.
+
+    It must not read as an accepted order, and it must not read as an APIError
+    either: an APIError tells callers nothing exists, which this does not prove.
+    """
+    client = MagicMock()
+    body = {"code": -2022, "msg": "ReduceOnly Order is rejected."}
+    client.futures_create_order.return_value = body
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    intent = OrderIntent("AAAUSDT", "BUY", 2.0, False, 200.0, "open", "LIMIT")
+    with pytest.raises(UnconfirmedOrderError) as info:
+        adapter.submit(intent, price=99.98)
+    assert info.value.body == body
+    assert "-2022" in str(info.value)
+    assert not isinstance(info.value, APIError)

@@ -30,6 +30,49 @@ except ImportError:  # pragma: no cover - older/alternate client shape
 
 _MARGIN_TYPE_UNCHANGED = -4046
 
+# python-binance 1.0.37's `futures_create_order` silently routes these types to
+# `POST /fapi/v1/algoOrder` (Binance moved conditionals to the Algo service on
+# 2025-12-09). That endpoint acknowledges with `algoId`, never `orderId`, and
+# the order lists under `openAlgoOrders`, not `openOrders` -- so a stop that
+# WAS placed reads, through classic-order code, as a KeyError plus "no order
+# exists" (#829, measured 2026-08-29 on TRXUSDT). Mirrors the library's list.
+_CONDITIONAL_TYPES = frozenset(
+    {"STOP", "STOP_MARKET", "TAKE_PROFIT", "TAKE_PROFIT_MARKET", "TRAILING_STOP_MARKET"}
+)
+
+
+class UnconfirmedOrderError(Exception):
+    """A 2xx order response that does not carry the id its route acknowledges with.
+
+    python-binance raises only on a non-2xx status and hands any 2xx body back
+    as a plain dict, so an error payload on HTTP 200 would otherwise read as an
+    accepted order. Deliberately NOT an `APIError`: an APIError means the
+    exchange refused and nothing exists, while here the order's existence is
+    UNKNOWN. Callers must treat it as unknown, never as a refusal or a success.
+    """
+
+    def __init__(self, symbol: str, expected_key: str, body: Any) -> None:
+        self.symbol = symbol
+        self.expected_key = expected_key
+        self.body = body
+        super().__init__(
+            f"{symbol}: order response carries no {expected_key!r}; "
+            f"exchange state UNKNOWN. raw body: {body!r}"
+        )
+
+
+def ack_key(order_type: str) -> str:
+    """The id field Binance acknowledges an order of `order_type` with."""
+    return "algoId" if order_type.upper() in _CONDITIONAL_TYPES else "orderId"
+
+
+def require_ack(symbol: str, order_type: str, resp: Any) -> dict[str, Any]:
+    """Return `resp` if it acknowledges the order, else raise `UnconfirmedOrderError`."""
+    key = ack_key(order_type)
+    if not isinstance(resp, dict) or resp.get(key) is None:
+        raise UnconfirmedOrderError(symbol, key, resp)
+    return resp
+
 
 class BinanceFuturesAdapter:
     def __init__(self, client: Any, mode: str) -> None:
@@ -164,6 +207,9 @@ class BinanceFuturesAdapter:
         letting it take. That is the point — a crossed "maker" order is just a
         taker fill with extra steps — but it means a wrong-side tick rounding
         fails as a rejection, not a bad fill. See `round_to_tick`.
+
+        A live response is returned only once `require_ack` has seen its id;
+        anything else raises `UnconfirmedOrderError` (#829).
         """
         if intent.order_type == "LIMIT" and price is None:
             raise ValueError(f"LIMIT order requires a price: {intent.symbol}")
@@ -193,7 +239,8 @@ class BinanceFuturesAdapter:
         if intent.order_type == "LIMIT":
             params["price"] = price
             params["timeInForce"] = "GTX"
-        return self.client.futures_create_order(**params)  # type: ignore[no-any-return]
+        resp = self.client.futures_create_order(**params)
+        return require_ack(intent.symbol, intent.order_type, resp)
 
     def cancel_open_orders(self, symbol: str) -> None:
         if self.mode == "dry_run":

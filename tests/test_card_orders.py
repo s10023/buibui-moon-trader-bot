@@ -25,7 +25,11 @@ from card.orders import (
     refresh_orders,
     scan_candidates,
 )
-from trade.binance_futures import APIError, BinanceFuturesAdapter
+from trade.binance_futures import (
+    APIError,
+    BinanceFuturesAdapter,
+    UnconfirmedOrderError,
+)
 from trade.routing import ExchangeFilters
 
 NOW_MS = 1_756_000_000_000
@@ -1097,6 +1101,39 @@ def test_submit_timeout_records_submit_unknown_then_reraises(
     assert rows[0]["kind"] == "placement" and rows[0]["symbol"] == "BTCUSDT"
     assert rows[0]["order_id"] is None
     assert rows[0]["terminal_reason"] == "submit_unknown"
+    assert "MANUALLY" in capsys.readouterr().out
+
+
+def test_unacknowledged_2xx_records_submit_unknown_with_the_raw_body(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """#829: a 200 body without `orderId` used to die as a KeyError, no row written.
+
+    The order's existence is unknown, so it takes the timeout path: a
+    submit_unknown row that blocks re-presentation, the raw body kept on the
+    row as evidence, and the error re-raised.
+    """
+    client = MagicMock()
+    client.futures_create_order.return_value = {"code": -2022, "msg": "rejected"}
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    ledger = tmp_path / "card-orders.jsonl"
+    with pytest.raises(UnconfirmedOrderError):
+        place_orders(
+            adapter,
+            [_decision()],
+            ledger_path=ledger,
+            dual_side=True,
+            marks={},
+            books={},
+            positions={},
+            equity=None,
+            now_ms=NOW_MS,
+        )
+    rows = read_jsonl(ledger)
+    assert len(rows) == 1
+    assert rows[0]["order_id"] is None
+    assert rows[0]["terminal_reason"] == "submit_unknown"
+    assert "-2022" in rows[0]["submit_error"]
     assert "MANUALLY" in capsys.readouterr().out
 
 

@@ -403,7 +403,8 @@ def place_orders(
     the operator is told to check open orders by hand, and the error is then
     re-raised unchanged. That row carries the anti-join key too, so the card
     does not re-present while its true state is unknown -- resolving it is a
-    manual step, not a second automatic placement.
+    manual step, not a second automatic placement. A 2xx response with no
+    `orderId` (`UnconfirmedOrderError`, #829) takes the same path.
     """
     written: list[dict[str, Any]] = []
     for d in decisions:
@@ -470,6 +471,10 @@ def place_orders(
         if terminal_reason is not None:
             row["terminal_reason"] = terminal_reason
             row["terminal_at_ms"] = now_ms
+        if submit_error is not None:
+            # An UnconfirmedOrderError's text carries the raw response body,
+            # the one piece of evidence #829 lacked; keep it beside the row.
+            row["submit_error"] = repr(submit_error)
         _append_line(ledger_path, row)
         written.append(row)
         if submit_error is not None:
