@@ -1,6 +1,6 @@
-# Phase 0 — the mechanical sweep, leg by leg
+# Step 0 — the mechanical sweep, leg by leg
 
-**When:** Read before running Phase 0, and whenever a leg fires that you do not recognise.
+**When:** Read before running Step 0, and whenever a leg fires that you do not recognise.
 
 Reference for `.claude/skills/post-branch/SKILL.md`, which holds the run order and the condensed rules. This file holds the full text, including the dated incidents behind each rule. The passages below are carried over verbatim from the pre-split SKILL.md (#884), so where one says "this file", "this skill", "above" or "below" about the phase table or a step, it means SKILL.md.
 
@@ -32,7 +32,7 @@ a glance, a silent miss ships a doc that reads as complete.
 ## What it does not cover
 
 **What it deliberately does NOT cover:** whether a doc is *correct*, whether the
-behaviour gate should pass, or whether a claim is true. Those are phases 1–6 —
+behaviour gate should pass, or whether a claim is true. Those are Steps 1–12 —
 and since ST88 the sweep says so itself, closing with the `Step N` bodies it
 does not reach. That block states the gap where a session running the mechanical
 half will actually see it, which prose here cannot: both parallel sessions on
@@ -49,7 +49,7 @@ of 7 hits sat in the memory tree, which no repo-scoped check can reach at all.
 you and there is nothing to decide. In a **parallel run it is one session and one
 only**, per the operator's one-owner-per-shared-gitignored-doc rule, and the other
 session must not write the file at all. So **establish ownership BEFORE running
-phase 0, not when a leg fires**: if you are not the owner, discharge all three by
+Step 0, not when a leg fires**: if you are not the owner, discharge all three by
 **reporting the finding to the owner** and record that you did — do not edit, do not
 prune, and do not treat `handoff-size` as a gate on your branch. It is advisory
 (`--exit-zero`) and it is measuring a file you have no write claim on.

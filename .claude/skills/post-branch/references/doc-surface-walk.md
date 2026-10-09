@@ -177,7 +177,7 @@ For each surface in the config, do the following:
 
   **⚠ The single-source form FALSE-GREENS, and it did on 2026-08-14d.**
   `--diff-filter=A main...HEAD` cannot see a file that is not committed yet, and
-  Steps 1–5b run before the commit — so the check reported clean on three genuinely
+  Steps 1–6 run before the commit — so the check reported clean on three genuinely
   undocumented files. **A probe that cannot fail at the moment it runs is worse than
   no probe**, because it launders the gap as verified.
 

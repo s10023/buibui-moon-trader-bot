@@ -1,4 +1,4 @@
-# Step 9 — the per-surface report
+# Step 12 — the per-surface report
 
 **When:** Read when writing the final report, at the end of the run.
 
@@ -21,7 +21,7 @@ docker-compose.yml — no change needed: no new processes
 gitignored ops     — daily_check.py line added (NOT in the diff) | no change needed: <reason>
 PR summary         — written to docs/plans/scratch/pr-<branch>.md   (slashes flattened to -)
 PR body            — appended "Documentation updates" section
-pre-merge          — clean | <blocker> (see Step 10a)
+pre-merge          — clean | <blocker> (see Step 9)
 handoff prompt     — written to docs/plans/next-conversation-prompt.md | declined
 PR state re-check  — #<num>: <OPEN | MERGED>, handoff table rewritten to match
 ```

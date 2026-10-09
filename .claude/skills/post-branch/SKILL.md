@@ -23,59 +23,45 @@ edits the user can approve.
 
 Its job is not to gatekeep the PR but to catch doc drift before merge — when
 fixing it is still cheap. **Done** means every surface the diff reaches reads either
-"updated: …" or "no change needed: <reason>" (Step 9), MEMORY.md and the Issues are
+"updated: …" or "no change needed: <reason>" (Step 12), MEMORY.md and the Issues are
 reconciled, the PR costs ONE CI run, and the handoff matches live PR state.
 
 This file holds the run order, the rule at each step and the **Gotchas**. The dated
 incidents behind each rule live in `references/`, and each step names the file to open.
-**Read the Gotchas before Phase 0** — each is filed under the step it bites at.
+**Read the Gotchas before Step 0** — each is filed under the step it bites at.
 
-## Running order — PHASES, not step numbers
+## Running order
 
-⚠ **Run the phases in the order below. The `Step N` headings further down are
-ordered differently and are NOT the run order** — they are the bodies each phase
-executes. Treat the step headings as a table of contents.
-
-| Phase | What | Step bodies | Costs CI? |
-| --- | --- | --- | --- |
-| **0** | **`make post-branch-checks`** — the mechanical sweep. Run it FIRST; its hits feed every later phase | — | no |
-| **1** | Behaviour gate: is this PR user-facing? | 1 | no |
-| **2** | Identify changed artifacts, walk each doc surface | 2, 3, 4 | no |
-| **3** | Always-run regardless of the gate: MEMORY.md, Issue reconcile | 5, 5b | no |
-| **4** | Commit and push, run **`make preflight`** (clean-clone gate — it REPLACES this branch's `make test`), **decide the visibility flip**, then `gh pr create` | 7 | **one run** |
-| **5** | PR body | 6 | no |
-| **6** | Pre-merge check, handoff, re-verify PR state **last** | 10a, 10b, 10c | no |
-
-Phases 0 and 3 run **regardless** of the phase-1 gate. Phases 0–4 run **before**
-`gh pr create`, so doc fixes ship in the initial push; Steps 6 and 10a/10c need the PR to
-exist. **Do not "simplify" this into a blanket rule in either direction.** Steps 8 and 9
-are situational. **If `gh pr create` has already run**, do not skip the walk — run the
-whole thing now and accept the extra CI run. A stale doc costs more than one CI cycle.
+Run the steps in the order they appear below. **Step 0 and Steps 1–7 run before `gh pr
+create`**, so doc fixes ship in the initial push; Steps 8–11 need the PR to exist. Step 12
+is the closing report. Steps 0, 5 and 6 run **regardless** of the Step 1 gate. **If `gh pr
+create` has already run**, do not skip the walk — run the whole thing now and accept the
+extra CI run. A stale doc costs more than one CI cycle.
 
 ## References — open each one at its step
 
 | File | Open it |
 | --- | --- |
-| `references/run-order.md` | before reordering a phase, citing this skill elsewhere, or running after the PR exists |
-| `references/mechanical-sweep.md` | before Phase 0; whenever a leg fires that you do not recognise |
+| `references/run-order.md` | before reordering a step, citing this skill elsewhere, or running after the PR exists |
+| `references/mechanical-sweep.md` | before Step 0; whenever a leg fires that you do not recognise |
 | `references/behaviour-gate.md` | before Step 1 (it also holds the doc-surface glob config) |
 | `references/doc-surface-walk.md` | before Step 2; it carries the Step 4 per-surface checks and recipes |
-| `references/memory-and-issues.md` | before Step 5; always when the branch lands a `docs/research/` doc |
+| `references/memory-and-issues.md` | before Steps 5–6; always when the branch lands a `docs/research/` doc |
 | `references/preflight.md` | before `make preflight` at Step 7, and before deciding to skip it |
 | `references/visibility-flip.md` | before the flip decision at Step 7, and again before the flip back |
-| `references/pr-body.md` | at Step 6 — the fetch → append → push commands |
-| `references/pre-merge-check.md` | before Step 10a, and before reporting ANY failing check |
-| `references/handoff.md` | before writing or pruning the handoff at Step 10b, and before Step 10c |
-| `references/output-format.md` | at Step 9, when writing the final per-surface report |
+| `references/pr-body.md` | at Step 8 — the fetch → append → push commands |
+| `references/pre-merge-check.md` | before Step 9, and before reporting ANY failing check |
+| `references/handoff.md` | before writing or pruning the handoff at Step 10, and before Step 11 |
+| `references/output-format.md` | at Step 12, when writing the final per-surface report |
 
-## Phase 0 body — the mechanical sweep
+## Step 0 — The mechanical sweep
 
 ```bash
 make post-branch-checks
 ```
 
 All legs advisory (`--exit-zero`); triage each hit. **Establish who owns the handoff
-BEFORE running it** (Gotchas → Phase 0).
+BEFORE running it** (Gotchas → Step 0).
 
 ## Step 1 — Behaviour gate: is this PR user-facing?
 
@@ -143,12 +129,12 @@ CLAUDE.md wins):
   `memory/project_session_log_<month>.md`. Prune by MOVING, never by deleting.
 - Convert any relative dates ("Thursday") to absolute (`2026-05-01`)
 - **Do NOT record open questions or pending decisions here.** File each as an Issue
-  labelled `question` (Step 5b). There is no "Previous session" bullet.
+  labelled `question` (Step 6). There is no "Previous session" bullet.
 
-## Step 5b — Issue reconcile (always, and it is NOT covered by Step 5)
+## Step 6 — Issue reconcile (always, and it is NOT covered by Step 5)
 
 **First: does this branch close, change, or contradict an open Issue?** Closing → put
-`Closes #<n>` in the PR body (Step 6) plus a one-line verdict comment. Changing or
+`Closes #<n>` in the PR body (Step 8) plus a one-line verdict comment. Changing or
 contradicting → comment on the Issue **now, in this same session**. A NEW to-do, future
 plan, skill fix, open question or pending decision becomes a new Issue — never a memory
 row, never a handoff list; operator-waiting items carry `question`. Redact account
@@ -157,13 +143,6 @@ figures and screen any composed body with `make post-branch-text FILE=<path>`.
 **Second: did this branch land a `docs/research/` doc that RECOMMENDS work?** If yes,
 **file its own GitHub Issue naming the filename, in this same session** — no tool will
 ever ask for one.
-
-## Step 6 — Update the PR body
-
-Once edits are approved and applied (or the gate decided no edits were needed), append a
-"Documentation updates" section to the PR body — one line per surface — with the
-fetch → append → push sequence in `references/pr-body.md`. If the body already has that
-section, update it in place; don't append a duplicate.
 
 ## Step 7 — Commit and push
 
@@ -210,27 +189,17 @@ Every command for this sub-step is in `references/visibility-flip.md`. In order:
    PR body FIRST, hand the operator the `gh repo edit … --visibility public` command and
    WAIT.
 4. **Confirm it landed** (`gh repo view … --json visibility`, a read), then `gh pr create`.
-5. Phase 6 closes the pair — the flip BACK, gated on `make wait-ci-main`, then
+5. Step 11 closes the pair — the flip BACK, gated on `make wait-ci-main`, then
    **check → flip → RE-VERIFY** with the by-merge-SHA runs listing.
 
-## Step 8 — Rebase handling (only when needed)
+## Step 8 — Update the PR body
 
-Sometimes a relevant doc lives on `main` but not on the PR branch (e.g. it landed in a
-sibling PR), and the diff at Step 3 won't surface it. Check with
-`git ls-tree main -- <doc-path>`; if it is missing here, ask the user whether to rebase or
-leave it to the next PR. Rebase only on explicit OK (`git fetch origin main`, then
-`git rebase origin/main`), and resolve conflicts the user's way, not by force.
+Once edits are approved and applied (or the gate decided no edits were needed), append a
+"Documentation updates" section to the PR body — one line per surface — with the
+fetch → append → push sequence in `references/pr-body.md`. If the body already has that
+section, update it in place; don't append a duplicate.
 
-## Step 9 — Output format
-
-Output a per-surface report — one line per surface, `updated: <what>` or
-`no change needed: <reason>` — from the template in `references/output-format.md`, whose
-PR-summary path flattens `/` to `-`. Be explicit. "no change needed: internal refactor
-only" is useful; silence is not.
-
-## Step 10 — Post-PR handoff
-
-### 10a — Pre-merge readiness check
+## Step 9 — Pre-merge readiness check
 
 ```bash
 make wait-ci PR=<n>     # resolves the SHA, prints steps=EXECUTED/DECLARED per job
@@ -242,16 +211,16 @@ uncommitted changes, unpushed commits, `mergeable: false` / `mergeable_state: di
 `CHANGES_REQUESTED`. One line per item; if everything is green, say so explicitly:
 `pre-merge: clean — ready when you are.`
 
-### 10b — Fresh-conversation handoff prompt
+## Step 10 — Fresh-conversation handoff prompt
 
-**Precondition — do you OWN the handoff?** If another session owns it, **skip 10b**, hand
+**Precondition — do you OWN the handoff?** If another session owns it, **skip Step 10**, hand
 that session this branch's PR number and state, what it closes and any row it makes stale,
 and say so in your final report. Otherwise **offer** (don't auto-write) to update
 `docs/plans/next-conversation-prompt.md` — file-only output, never inline, never `/tmp`.
 It carries SEQUENCING only (ordered Issue numbers, host state, standing hazards); update it
 with targeted `Edit`s, prune on every task, and print only the path plus one line.
 
-### 10c — Re-verify PR state as the LAST action (never skip)
+## Step 11 — Re-verify PR state as the LAST action (never skip)
 
 Immediately before you report done — after **every** other step, including
 any commit and push — re-query every PR named in the handoff, not just the
@@ -264,21 +233,34 @@ gh api repos/s10023/buibui-moon-trader-bot/pulls/<PR#> --jq '"\(.state) \(.merge
 Then rewrite the state table in place to match, and if a PR merged, the "first move"
 line too.
 
+## Step 12 — Output format
+
+Output a per-surface report — one line per surface, `updated: <what>` or
+`no change needed: <reason>` — from the template in `references/output-format.md`, whose
+PR-summary path flattens `/` to `-`. Be explicit. "no change needed: internal refactor
+only" is useful; silence is not.
+
+## Situational — rebase handling (only when needed)
+
+Sometimes a relevant doc lives on `main` but not on the PR branch (e.g. it landed in a
+sibling PR), and the diff at Step 3 won't surface it. Check with
+`git ls-tree main -- <doc-path>`; if it is missing here, ask the user whether to rebase or
+leave it to the next PR. Rebase only on explicit OK (`git fetch origin main`, then
+`git rebase origin/main`), and resolve conflicts the user's way, not by force.
+
 ## Gotchas
 
 Each is a rule a past run broke; the incident is in the reference named beside it.
 
 **Run order** (`references/run-order.md`)
 
-- ⚠ **CITE THE STEP, NOT THE PHASE, from any doc outside this file.** Phases exist only as
-  table rows, so `tools/stale_anchors.py` flags "post-branch phase 4" as a dead anchor.
-- ⚠ **A phase whose output depends on a LATER phase:** write the MEMORY.md bullet with
-  `#NNN` omitted and let phase 6 fill it. Do not reorder phase 3 after phase 4 —
+- ⚠ **A step whose output depends on a LATER step:** write the MEMORY.md bullet with
+  `#NNN` omitted and let Step 11 fill it. Do not reorder Step 5 after Step 7 —
   MEMORY.md must be written even when no PR is ever opened.
-- **Phase 0 is not optional and it is not a summary of the rest.** A green sweep is *not*
+- **Step 0 is not optional and it is not a summary of the rest.** A green sweep is *not*
   a green branch, and a hand walk is not the walk.
 
-**Phase 0** (`references/mechanical-sweep.md`)
+**Step 0** (`references/mechanical-sweep.md`)
 
 - ⚠ **`queue-items`, `handoff-symbols` and `handoff-size` READ the handoff, which has ONE
   owning session.** Not the owner? Report the finding to the owner and record that you
@@ -316,7 +298,7 @@ Each is a rule a past run broke; the incident is in the reference named beside i
   rule has NO locus — grep the artifact, then READ each hit.** A hit is a candidate.
 - **If you ever doubt whether a path is gated, inject a violation and look.**
 
-**Steps 5–5b** (`references/memory-and-issues.md`)
+**Steps 5–6** (`references/memory-and-issues.md`)
 
 - ⚠ **An empty `gh issue list` is not "nothing to reconcile" when `gh` failed** — check the
   exit code. **An open Issue that is already done is worse than a missing one.**
@@ -345,7 +327,7 @@ Each is a rule a past run broke; the incident is in the reference named beside i
   Check → flip → **RE-VERIFY** by merge SHA, never a branch listing; an empty answer is
   UNVERIFIED, not clean.
 
-**Step 10a** (`references/pre-merge-check.md`)
+**Step 9** (`references/pre-merge-check.md`)
 
 - ⚠ **`wait_ci.py`'s exit codes do not survive `make`** — read the banner (3 = billing,
   1 = real failure, 4 = unreadable step counts, not a pass). **Read the EXECUTED half.**
@@ -356,7 +338,7 @@ Each is a rule a past run broke; the incident is in the reference named beside i
 - **⚠ Do NOT use a flat "under ~10 seconds never ran" rule** — compare each check against
   ITS OWN normal runtime.
 
-**Steps 10b–10c** (`references/handoff.md`)
+**Steps 10–11** (`references/handoff.md`)
 
 - **Update the handoff with targeted `Edit`s. NEVER `Write` the whole file.** **Read a
   closed section before deleting it** — open items hide under "DONE" headers.

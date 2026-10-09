@@ -75,7 +75,7 @@ The file opens with the title in a code span under `## PR Title`, then the body.
   the working tree, so a config TOML or schema change is live within 15 minutes of landing.
 - One line per paragraph or bullet, no hard wraps: GitHub renders a single newline as a break.
 - End with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
-- `/post-branch` Step 6 later appends a `## Documentation updates` section; leave room for it.
+- `/post-branch` Step 8 later appends a `## Documentation updates` section; leave room for it.
 
 ## Calling `gh` here
 

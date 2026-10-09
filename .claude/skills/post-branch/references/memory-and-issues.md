@@ -1,6 +1,6 @@
-# Steps 5 and 5b — MEMORY.md and the Issue reconcile
+# Steps 5 and 6 — MEMORY.md and the Issue reconcile
 
-**When:** Read before Step 5 if anything about the MEMORY.md protocol or the Issue tracker looks unfamiliar, and always when the branch lands a `docs/research/` doc.
+**When:** Read before Steps 5–6 if anything about the MEMORY.md protocol or the Issue tracker looks unfamiliar, and always when the branch lands a `docs/research/` doc.
 
 Reference for `.claude/skills/post-branch/SKILL.md`, which holds the run order and the condensed rules. This file holds the full text, including the dated incidents behind each rule. The passages below are carried over verbatim from the pre-split SKILL.md (#884), so where one says "this file", "this skill", "above" or "below" about the phase table or a step, it means SKILL.md.
 
@@ -19,7 +19,7 @@ State"** at the end of every session. This is project policy (CLAUDE.md
   session logs have no size limit; that is what they are for.
 - Convert any relative dates ("Thursday") to absolute (`2026-05-01`)
 - **Do NOT record open questions or pending decisions here.** File each as an Issue
-  labelled `question` (Step 5b), and if MEMORY.md still carries such a line, move it to an
+  labelled `question` (Step 6), and if MEMORY.md still carries such a line, move it to an
   Issue and delete it. MEMORY.md keeps the last-session line plus judgement and verdicts;
   open work lives in Issues only (CLAUDE.md, operator ruling 2026-10-01, #865).
 
@@ -36,14 +36,14 @@ This step runs even when the behaviour gate skipped the user-facing doc
 walk, because MEMORY.md tracks **what changed in the session**, not just
 behaviour-visible changes.
 
-## Step 5b — Issue reconcile
+## Step 6 — Issue reconcile
 
 Planning lives in **GitHub Issues** on this repo since 2026-09-29; the memory SoT
 (`project_todo_master.md`) is a pointer stub carrying rulings and an old-id → Issue map, and
 takes no status.
 
 **Two questions. First: does this branch close, change, or contradict an open Issue?**
-If it closes one, put `Closes #<n>` in the PR body (Step 6) so the merge closes it, and add a
+If it closes one, put `Closes #<n>` in the PR body (Step 8) so the merge closes it, and add a
 one-line verdict comment. If it only changes or contradicts one, comment on the Issue **now,
 in this same session**. A branch that surfaces a NEW to-do, future plan, skill fix, open
 question or pending decision files a new Issue — never a memory row, never a handoff list.

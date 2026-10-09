@@ -1,6 +1,6 @@
-# Step 10a — the pre-merge readiness check
+# Step 9 — the pre-merge readiness check
 
-**When:** Read before Step 10a, and before reporting ANY failing check.
+**When:** Read before Step 9, and before reporting ANY failing check.
 
 Reference for `.claude/skills/post-branch/SKILL.md`, which holds the run order and the condensed rules. This file holds the full text, including the dated incidents behind each rule. The passages below are carried over verbatim from the pre-split SKILL.md (#884), so where one says "this file", "this skill", "above" or "below" about the phase table or a step, it means SKILL.md.
 

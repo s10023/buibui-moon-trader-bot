@@ -1,16 +1,16 @@
-# Steps 10b and 10c — the handoff and the last re-verify
+# Steps 10 and 11 — the handoff and the last re-verify
 
-**When:** Read before writing or pruning `docs/plans/next-conversation-prompt.md` at Step 10b, and before Step 10c.
+**When:** Read before writing or pruning `docs/plans/next-conversation-prompt.md` at Step 10, and before Step 11.
 
 Reference for `.claude/skills/post-branch/SKILL.md`, which holds the run order and the condensed rules. This file holds the full text, including the dated incidents behind each rule. The passages below are carried over verbatim from the pre-split SKILL.md (#884), so where one says "this file", "this skill", "above" or "below" about the phase table or a step, it means SKILL.md.
 
-## 10b — the fresh-conversation handoff
+## Step 10 — the fresh-conversation handoff
 
 **Precondition — do you OWN the handoff?** This step assumes the running session is
 the one that maintains `docs/plans/next-conversation-prompt.md`, which is true solo
-and false in a parallel run. If another session owns it, **skip 10b** and instead hand
+and false in a parallel run. If another session owns it, **skip Step 10** and instead hand
 that session what it needs to fold in: this branch's PR number and state, what it
-closes, and any handoff row it makes stale. Say in your final report that 10b was
+closes, and any handoff row it makes stale. Say in your final report that Step 10 was
 skipped for ownership and to whom the content went — a skipped step and a forgotten
 one look identical next session, which is the whole reason the handoff exists.
 
@@ -31,7 +31,7 @@ a final step of every task, not only of this skill.
 **The handoff carries SEQUENCING, never open work** (operator ruling of
 2026-10-01, Issue #865). It holds an ordered list of Issue numbers to work, host state, and
 standing hazards. A to-do, skill fix, open question, pending decision, "operator
-also wants" or "offered, not ruled" item is an Issue (Step 5b) — if you find one
+also wants" or "offered, not ruled" item is an Issue (Step 6) — if you find one
 written here, file it and replace it with its Issue number. Lists that lived only
 in this file were never filed and went unseen by every Issue query.
 
@@ -186,7 +186,7 @@ prompt that costs zero context to bring a fresh session up to speed.
 Print only the path + a one-line description. Do **not** echo the
 contents.
 
-## 10c — re-verify PR state as the LAST action
+## Step 11 — re-verify PR state as the LAST action
 
 This skill writes the handoff *before* the merge, so its most prominent
 instruction is the first thing to go stale. On 2026-08-03 all three PRs
