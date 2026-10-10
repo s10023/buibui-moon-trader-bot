@@ -730,6 +730,14 @@ on, never "no edge", and not a waiting game: at the floor variance its Sharpe me
 20,000 book-days. A 14:00-UTC, per-direction or per-symbol re-cut is a new trial. Round 1 of #864
 ends with all three slots empty.
 
+**E850 short after a breakout on rising OI — FAILS, and the short LOSES**
+(`docs/audits/2026-10-10-e850-oi-breakout-flush-result.md`, #850). Shorting a 20-day Donchian break on
+24 universe perps when 5-day `oi_contracts` growth is at its own 67th percentile reads −0.115R per
+book-day on [−0.193, −0.040] over 1,024 book-days, net of cost: confirmed-bad, not a powered null.
+The ungated breakout short loses as much and OI adds nothing (deflated t −0.04), so breakouts here
+continue rather than flush. A long-breakout or OI-as-conviction trade is a new trial, never a
+reading of this one. Round 2's slot 1 is empty.
+
 **The binding constraint, confirmed five times** (exits, trend-weight, combine, carry,
 reversal): the system needs a second *strong* edge, and the cheap price-only free-data
 levers are exhausted. A new sleeve must carry genuinely new information. **Conditioning axes
