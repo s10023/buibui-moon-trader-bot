@@ -1,5 +1,20 @@
 # Buibui Moon Trader Bot — System Overview
 
+> ⚠ **SUPERSEDED — frozen at 2026-05-13 (#1015).** Everything below describes the system as it
+> stood then, and five months of work has moved it. **Do not hand §9 to an outside reviewer as
+> current.** Three claims are now wrong:
+>
+> - Funding and OI are **wired** (`analytics/data_sync.py`, plus the OI archive, #936), not "unwired".
+> - Outcome write-back **exists**: `analytics/signal/outcome_backfill.py` writes `outcome_r`, and
+>   that live ledger is the out-of-sample evidence base every verdict since June reads.
+> - The "+0.089R live edge" on `liquidity_sweep 1h` was a backtest figure. The live signal book
+>   reads about −0.15R net per alert (`docs/research/2026-10-08-pillar-gaps.md`).
+>
+> Read these instead: `AGENTS.md` (Project Structure, sleeve and research verdicts), the
+> direction per book in `docs/adr/0001-direction-per-book.md`, the tested register in
+> `docs/research/2026-10-07-tested-register.md`, and the per-module references in
+> `.claude/context/`.
+
 **Purpose.** Provide a self-contained mental model of the live signal pipeline so an outside reviewer (ChatGPT, Gemini, a trading-savvy friend) can assess: *given the current architecture, what is missing for this system to be measurably profitable?*
 
 **Audience.**
