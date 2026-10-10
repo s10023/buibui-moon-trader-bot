@@ -59,7 +59,7 @@ roles = ["anchor", "enumerating", "negative_claim", "sanity"]
 [[surface]]
 id = "system_overview"
 path = "docs/system-overview.md"
-purpose = "Architecture narrative"
+purpose = "Architecture narrative, frozen at 2026-05-13 and superseded (#1015)"
 roles = ["anchor", "sanity"]
 
 [[surface]]
