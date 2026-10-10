@@ -153,6 +153,7 @@ buibui-moon-trader-bot/
 | `web/` | `.claude/context/web.md` |
 | `trade/` · `deploy/` · `monitor/` · `utils/` · `cli/` | `.claude/context/execution.md` |
 | `tools/` | `.claude/context/tools.md` |
+| Cloud sessions and Routines: what a claude.ai container lacks | `.claude/context/cloud-sessions.md` |
 
 `AGENTS.md` carries the package index and the sleeve verdicts.
 
