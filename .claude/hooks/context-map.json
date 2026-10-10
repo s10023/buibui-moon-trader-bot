@@ -34,7 +34,7 @@
         "trade/binance_futures.py",
         "trade/xsmom_executor.py"
       ],
-      "text": "trade/: order type is maker on risk-increasing legs, taker on risk-reducing ones, BY DESIGN -- do not 'finish the job' and make closes maker. LIMIT legs go post-only (GTX) priced at the book touch so they never cross. `xsmom_executor.run_once` cancels stale resting orders BEFORE the positions read that planning uses: a correctness precondition of the daily cadence, not tidy-up. Inside the managed set `cancel_open_orders` is symbol-WIDE, so it also kills the operator's own orders. Backtest fee_pct stays 0.0005 (taker) on purpose -- maker fill rate is unmeasurable before live capital. Deep ref: .claude/context/execution.md"
+      "text": "trade/: order type is maker on risk-increasing legs, taker on risk-reducing ones, BY DESIGN -- do not 'finish the job' and make closes maker. LIMIT legs go post-only (GTX) priced at the book touch so they never cross. `xsmom_executor.run_once` cancels stale resting orders BEFORE the positions read that planning uses: a correctness precondition of the daily cadence, not tidy-up. Since #1023 that cancel touches only orders whose clientOrderId carries the `xs-` prefix, each by orderId, so the operator's ORDERS survive; the router still closes every non-book POSITION, so a shared account stays unsafe. Backtest fee_pct stays 0.0005 (taker) on purpose -- maker fill rate is unmeasurable before live capital. Deep ref: .claude/context/execution.md"
     },
     {
       "id": "backtest-run-id",

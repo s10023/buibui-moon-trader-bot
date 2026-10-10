@@ -50,7 +50,9 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
   the card's advisory-only default: a picklist places selected unexpired TRADE cards as
   post-only (GTX) limit ENTRIES only (no stop, no TP), and `--refresh` polls fills into
   `docs/plans/card-orders.jsonl`. Refuses a symbol in `config/universe.toml` once a live XS
-  execution marker exists. Wrapped by `make buibui-card-place [DRY=1]` /
+  execution marker exists. Each entry is sent under its own client order id
+  (`cd-<generated_at_ms>`), so a submit whose outcome is unknown is looked up by that id on
+  `--refresh` instead of by hand. Wrapped by `make buibui-card-place [DRY=1]` /
   `make buibui-card-orders [REFRESH=1]`.
 
 - `buibui exits arm SYMBOL --side LONG|SHORT --stop P --tp1 P [--tp1-frac 0.5] [--existing]`
@@ -61,7 +63,9 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
   (`--tp1-frac` of the position, floored to the lot step, skipped rather than sized up below
   a lot). Every fill on that side is journaled to `docs/plans/journal/exit-manager.jsonl`. If
   you move, resize or cancel either exit, the manager stands down for that position and never
-  re-places it. State changes and errors push to Telegram; a live watch refuses to start
+  re-places it. Each exit is sent under its own client order id, so if a submit's outcome is
+  unknown (a timeout, or a crash mid-submit) the next poll looks it up by that id instead of
+  standing down; only an exit proven absent is placed again, under the same id. State changes and errors push to Telegram; a live watch refuses to start
   without it unless `--no-telegram`. `exits report` prints maker share of exit fills and fee
   R per trade against the #916 baseline. Without `--live`, `watch` places and records nothing.
   A live watch rewrites `docs/plans/journal/exit-manager.heartbeat.json` every round, and the
@@ -973,7 +977,10 @@ make buibui-xsmom-execute MODE=testnet  # submit on Binance Futures testnet (val
 - `--mode testnet` validates the full order-submission path at zero capital risk (needs
   `BINANCE_TESTNET_API_KEY` / `BINANCE_TESTNET_API_SECRET`). `--mode live` is double-gated
   by `--i-understand-live` **and** `BINANCE_ALLOW_LIVE=1` (the mainnet flip is a later
-  supervised step). Requires one-way position mode.
+  supervised step). Requires one-way position mode. Each order is sent under
+  `xs-<run>-<symbol>`, and a run cancels only its own stale `xs-` orders, so your manual
+  orders survive. Your manual POSITIONS do not: every position outside the book is closed,
+  so the executor still needs its own sub-account.
 
 ### XS executor dry-run output
 

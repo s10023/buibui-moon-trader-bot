@@ -2,8 +2,7 @@
 
 Thin, injectable wrapper over a `python-binance` Client. Read methods always
 hit the API — this includes `dry_run`, so a dry run sees real exchange state;
-write methods (`ensure_account_config`, `submit`, `cancel_order`,
-`cancel_open_orders`) are
+write methods (`ensure_account_config`, `submit`, `cancel_order`) are
 no-op-and-log when `mode == "dry_run"`. The client is constructed by the CLI
 (mainnet for dry_run/live, testnet client for testnet) and injected here, so
 this class is unit-testable with a MagicMock.
@@ -11,6 +10,7 @@ this class is unit-testable with a MagicMock.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from trade.routing import ExchangeFilters, OrderIntent
@@ -36,6 +36,17 @@ POST_ONLY_REJECT = -5022
 # "Invalid API-key, IP, or permissions": the key is allowlisted to a dynamic
 # residential IP, so an ISP change returns this on EVERY signed call (#981).
 KEY_OR_IP_REJECTED = -2015
+# "Order does not exist". For a client order id it is the answer to "was this
+# ever placed?", and Binance also returns it forever for an order cancelled or
+# expired unfilled more than 7 days ago (`card.orders.refresh_orders`). That
+# the algo route answers an unknown `clientAlgoId` with the same code is
+# UNPROBED (#1023's Local session prompt); any other code raises, and every
+# caller then falls back to standing down, so a wrong guess here fails safe.
+ORDER_NOT_FOUND = -2013
+# One lookup can miss an order the exchange has not finished recording, so an
+# id counts as never placed only after this many misses, across polls
+# (hummingbot `client_order_tracker.py:221-249` uses the same shape).
+NEVER_PLACED_AFTER_MISSES = 3
 _TRADES_MAX_INTERVAL_MS = 7 * 86_400_000  # userTrades' per-call window cap
 _TRADES_PAGE_LIMIT = 1000
 
@@ -48,6 +59,24 @@ _TRADES_PAGE_LIMIT = 1000
 _CONDITIONAL_TYPES = frozenset(
     {"STOP", "STOP_MARKET", "TAKE_PROFIT", "TAKE_PROFIT_MARKET", "TRAILING_STOP_MARKET"}
 )
+
+
+# Binance's rule for newClientOrderId and clientAlgoId.
+_CLIENT_ORDER_ID_RE = re.compile(r"^[.A-Z:/a-z0-9_-]{1,36}$")
+
+
+def make_client_order_id(prefix: str, *parts: object) -> str:
+    """`<prefix>-<part>-<part>...`, checked against Binance's id rule.
+
+    Deterministic on purpose (#1023): the id is written into the caller's
+    intent row BEFORE the submit, so a run that dies mid-submit leaves the one
+    key that finds the order again. Raises ValueError rather than letting the
+    exchange refuse the order after the intent row is already written.
+    """
+    cid = "-".join([prefix, *(str(p) for p in parts)])
+    if not _CLIENT_ORDER_ID_RE.match(cid):
+        raise ValueError(f"client order id {cid!r} breaks Binance's 36-char rule")
+    return cid
 
 
 class UnconfirmedOrderError(Exception):
@@ -81,6 +110,28 @@ def require_ack(symbol: str, order_type: str, resp: Any) -> dict[str, Any]:
     if not isinstance(resp, dict) or resp.get(key) is None:
         raise UnconfirmedOrderError(symbol, key, resp)
     return resp
+
+
+def find_order_by_client_id(
+    client: Any, symbol: str, client_order_id: str, *, conditional: bool
+) -> dict[str, Any] | None:
+    """The order we sent under `client_order_id`, or None if Binance has none.
+
+    Classic orders are queried by `origClientOrderId`, conditionals by
+    `clientAlgoId` (python-binance routes that to `GET /fapi/v1/algoOrder`).
+    None means -2013, "Order does not exist"; any other error raises. A found
+    order that does not carry its route's id raises `UnconfirmedOrderError`,
+    because a body that names no order proves nothing either way.
+    """
+    key = "clientAlgoId" if conditional else "origClientOrderId"
+    try:
+        resp = client.futures_get_order(symbol=symbol, **{key: client_order_id})
+    except APIError as exc:
+        if getattr(exc, "code", None) == ORDER_NOT_FOUND:
+            return None
+        raise
+    order_type = "STOP_MARKET" if conditional else "LIMIT"
+    return dict(require_ack(symbol, order_type, resp))
 
 
 class BinanceFuturesAdapter:
@@ -181,17 +232,16 @@ class BinanceFuturesAdapter:
                 out[r["symbol"]] = (bid, ask)
         return out
 
-    def get_open_order_symbols(self) -> set[str]:
-        """Symbols carrying a resting order right now.
+    def get_open_orders(self) -> list[dict[str, Any]]:
+        """Every resting classic order on the account, each with its `clientOrderId`.
 
         Read with no symbol argument so it covers symbols that have since left
         the target book — the case with no position to reveal it. Not
-        dry-run-guarded, unlike `cancel_open_orders`: it's a plain read with
-        no mutation risk, and a dry run needs to see real resting orders to
-        surface the stale-order condition `cancel_open_orders` exists to fix.
+        dry-run-guarded: it is a plain read, and a dry run needs to see real
+        resting orders to surface the stale-order condition the XS executor
+        cancels by id (#1023).
         """
-        rows = self.client.futures_get_open_orders()
-        return {r["symbol"] for r in rows}
+        return [dict(r) for r in self.client.futures_get_open_orders()]
 
     def is_dual_side(self) -> bool:
         """True on a hedge-mode (dualSidePosition) account."""
@@ -232,6 +282,14 @@ class BinanceFuturesAdapter:
         """One classic order by id, whatever its status."""
         resp = self.client.futures_get_order(symbol=symbol, orderId=order_id)
         return dict(resp)
+
+    def find_order(
+        self, symbol: str, client_order_id: str, *, conditional: bool
+    ) -> dict[str, Any] | None:
+        """See `find_order_by_client_id`. A read, so a dry run hits the API too."""
+        return find_order_by_client_id(
+            self.client, symbol, client_order_id, conditional=conditional
+        )
 
     def get_account_trades(
         self, symbol: str, start_ms: int, end_ms: int
@@ -307,9 +365,14 @@ class BinanceFuturesAdapter:
             raise ValueError(
                 f"close_position needs a conditional type, got {intent.order_type}"
             )
+        if intent.client_order_id is not None and not _CLIENT_ORDER_ID_RE.match(
+            intent.client_order_id
+        ):
+            raise ValueError(f"bad client order id {intent.client_order_id!r}")
         if self.mode == "dry_run":
             return {
                 "dryRun": True,
+                "clientOrderId": intent.client_order_id,
                 "symbol": intent.symbol,
                 "side": intent.side,
                 "qty": intent.qty,
@@ -346,6 +409,12 @@ class BinanceFuturesAdapter:
             # MARK_PRICE so a last-price wick does not fire the stop.
             params["stopPrice"] = intent.stop_price
             params["workingType"] = "MARK_PRICE"
+        if intent.client_order_id is not None:
+            # python-binance 1.0.37 DROPS newClientOrderId on the algo route and
+            # invents a random clientAlgoId, so a conditional must name its id
+            # under the algo route's own key or the id is silently lost.
+            key = "clientAlgoId" if conditional else "newClientOrderId"
+            params[key] = intent.client_order_id
         resp = self.client.futures_create_order(**params)
         return require_ack(intent.symbol, intent.order_type, resp)
 
@@ -365,8 +434,3 @@ class BinanceFuturesAdapter:
             self.client.futures_cancel_order(symbol=symbol, algoId=algo_id)
         else:
             self.client.futures_cancel_order(symbol=symbol, orderId=order_id)
-
-    def cancel_open_orders(self, symbol: str) -> None:
-        if self.mode == "dry_run":
-            return
-        self.client.futures_cancel_all_open_orders(symbol=symbol)

@@ -4,6 +4,12 @@ Spec: docs/superpowers/specs/2026-08-28-st37-card-gtx-order-helper-design.md
 Places picked TRADE cards as post-only (GTX) limit entries and records every
 placement + terminal state in an append-only jsonl ledger, joined back to the
 card by (symbol, generated_at_ms).
+
+Each order is sent under its own client order id, `cd-<generated_at_ms>`
+(#1023), written into an `intent` row BEFORE the submit. A submit whose outcome
+is unknown -- the run died mid-submit, or it raised without an exchange
+refusal -- is then looked up by that id on `card-orders --refresh` rather than
+left for the operator to find by hand.
 """
 
 from __future__ import annotations
@@ -23,7 +29,15 @@ from portfolio.sizing import (
     round_down_to_step,
     round_to_tick,
 )
-from trade.binance_futures import POST_ONLY_REJECT, APIError, BinanceFuturesAdapter
+from trade.binance_futures import (
+    NEVER_PLACED_AFTER_MISSES,
+    ORDER_NOT_FOUND,
+    POST_ONLY_REJECT,
+    APIError,
+    BinanceFuturesAdapter,
+    find_order_by_client_id,
+    make_client_order_id,
+)
 from trade.routing import ExchangeFilters, OrderIntent
 
 DEFAULT_ORDERS_PATH = "docs/plans/card-orders.jsonl"
@@ -31,6 +45,7 @@ DEFAULT_ORDERS_PATH = "docs/plans/card-orders.jsonl"
 # leaves this marker. Testnet orders live on a different venue and cannot
 # collide with mainnet card orders, so only "live" gates.
 XS_LIVE_MARKER = Path("docs/plans/xsmom_targets/execution_state_live.json")
+CLIENT_ID_PREFIX = "cd"
 
 
 @dataclass(frozen=True)
@@ -97,6 +112,11 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
     return read_jsonl_counted(path)[0]
 
 
+def card_client_order_id(generated_at_ms: int) -> str:
+    """The id a card's entry is sent under: one card, one order, ever (#1023)."""
+    return make_client_order_id(CLIENT_ID_PREFIX, generated_at_ms)
+
+
 def scan_candidates(
     card_rows: list[dict[str, Any]],
     order_rows: list[dict[str, Any]],
@@ -106,12 +126,19 @@ def scan_candidates(
 
     Anti-join on (symbol, generated_at_ms): a gtx_rejected placement row also
     suppresses re-presentation on purpose — a rejection means price is already
-    through the level, so the setup is stale by definition.
+    through the level, so the setup is stale by definition. An `intent` row
+    suppresses it too, because an intent with no result is an order that may
+    exist; only a `refused` row (the exchange said no, so nothing exists)
+    releases its intent.
     """
+    refused = {
+        r.get("client_order_id") for r in order_rows if r.get("kind") == "refused"
+    }
     placed = {
         (r.get("symbol"), r.get("card_generated_at_ms"))
         for r in order_rows
         if r.get("kind") == "placement"
+        or (r.get("kind") == "intent" and r.get("client_order_id") not in refused)
     }
     out: list[CardCandidate] = []
     for row in card_rows:
@@ -283,18 +310,21 @@ def check_placement(
             f"card expired at placement ({(now_ms - cand.valid_until_ms) / 1000:.0f}s past valid_until)"
         )
 
-    # (b) XS collision: cancel_open_orders is symbol-WIDE, so a live XS run
-    # cancels card orders on any managed symbol. Veto on managed AND live
-    # marker; always warn on managed so the hazard is heard before go-live.
+    # (b) XS collision. Since #1023 an XS run cancels only its own `xs-`
+    # orders, so it no longer cancels this one; but `build_order_plan` trades
+    # every position on its symbols to the target book, so a FILLED card entry
+    # here is netted or closed by the next live XS run. Veto on managed AND
+    # live marker; always warn on managed so the hazard is heard before go-live.
     if managed and xs_live_marker:
         vetoes.append(
             f"{cand.symbol} is in the XS managed set and a live XS execution "
-            "state exists - a live XS run cancels ALL open orders on this symbol"
+            "state exists - a live XS run trades any position on this symbol "
+            "to its target book, so a filled entry would be netted away"
         )
     elif managed:
         warnings.append(
             f"{cand.symbol} is in the XS managed set; a future live XS run "
-            "would cancel this order"
+            "would net a filled entry here against its target book"
         )
 
     # (d) exchange rounding, restated risk (the card's own sizing rule applied
@@ -393,6 +423,12 @@ def place_orders(
     also suppresses re-presentation via the scan's anti-join.
     Dry-run placements return [] and write nothing.
 
+    Every live submit is preceded by an `intent` row carrying the card's
+    client order id, so a run that dies mid-submit leaves the key that finds
+    the order again (`refresh_orders`). A non-5022 APIError is an exchange
+    refusal -- nothing exists -- so it appends a `refused` row, which releases
+    the intent and lets the card re-present, then re-raises.
+
     A submit that fails with anything OTHER than an APIError -- a `requests`
     timeout or connection reset, which python-binance raises as
     BinanceRequestException / requests.Timeout rather than APIError -- may
@@ -400,11 +436,11 @@ def place_orders(
     response was lost. That order would be invisible to this ledger forever,
     because `card-orders --refresh` only polls order ids it already holds. So
     a row is written with order_id None + terminal_reason "submit_unknown",
-    the operator is told to check open orders by hand, and the error is then
-    re-raised unchanged. That row carries the anti-join key too, so the card
-    does not re-present while its true state is unknown -- resolving it is a
-    manual step, not a second automatic placement. A 2xx response with no
-    `orderId` (`UnconfirmedOrderError`, #829) takes the same path.
+    and the error is then re-raised unchanged. That row carries the anti-join
+    key too, so the card does not re-present while its true state is unknown;
+    `card-orders --refresh` resolves it by client order id, never by a second
+    placement. A 2xx response with no `orderId` (`UnconfirmedOrderError`,
+    #829) takes the same path.
     """
     written: list[dict[str, Any]] = []
     for d in decisions:
@@ -415,6 +451,7 @@ def place_orders(
         position_side = (
             ("LONG" if cand.direction == "long" else "SHORT") if dual_side else None
         )
+        cid = card_client_order_id(cand.generated_at_ms)
         intent = OrderIntent(
             cand.symbol,
             side,
@@ -424,7 +461,25 @@ def place_orders(
             "card",
             "LIMIT",
             position_side=position_side,
+            client_order_id=cid,
         )
+        key = {
+            "client_order_id": cid,
+            "symbol": cand.symbol,
+            "direction": cand.direction,
+            "card_generated_at_ms": cand.generated_at_ms,
+        }
+        if adapter.mode != "dry_run":
+            _append_line(
+                ledger_path,
+                {
+                    "kind": "intent",
+                    **key,
+                    "at_ms": now_ms,
+                    "limit_price": d.price,
+                    "qty": d.qty,
+                },
+            )
         order_id: int | None = None
         terminal_reason: str | None = None
         submit_error: BaseException | None = None
@@ -432,10 +487,15 @@ def place_orders(
             resp = adapter.submit(intent, price=d.price)
         except APIError as exc:
             # A non-5022 APIError is a real exchange refusal: the order does
-            # NOT exist, so it re-raises with the ledger untouched. Raising
-            # from inside this handler also keeps it away from the broad
-            # handler below, which must never record a refusal as "unknown".
+            # NOT exist, so the intent is released and the error re-raised.
+            # Raising from inside this handler also keeps it away from the
+            # broad handler below, which must never record a refusal as
+            # "unknown".
             if getattr(exc, "code", None) != _POST_ONLY_REJECT:
+                _append_line(
+                    ledger_path,
+                    {"kind": "refused", **key, "at_ms": now_ms, "error": repr(exc)},
+                )
                 raise
             terminal_reason = "gtx_rejected"
         except Exception as exc:
@@ -451,6 +511,7 @@ def place_orders(
         row: dict[str, Any] = {
             "kind": "placement",
             "order_id": order_id,
+            "client_order_id": cid,
             "symbol": cand.symbol,
             "direction": cand.direction,
             "card_generated_at_ms": cand.generated_at_ms,
@@ -481,8 +542,8 @@ def place_orders(
             print(
                 f"! {cand.symbol}: submit outcome UNKNOWN ({submit_error!r}) - the "
                 "exchange may have ACCEPTED this order. Recorded as "
-                "submit_unknown; check open orders on the exchange MANUALLY "
-                "before re-running card-place."
+                f"submit_unknown under client order id {cid}; run "
+                "`card-orders --refresh`, which looks it up by that id."
             )
             raise submit_error
     return written
@@ -498,7 +559,7 @@ def place_orders(
 _WORKING_STATUSES = {"NEW", "PARTIALLY_FILLED", "PENDING_CANCEL"}
 # Binance's "Order does not exist": returned FOREVER for an order that was
 # cancelled or expired without filling and is now older than 7 days.
-_ORDER_NOT_FOUND = -2013
+_ORDER_NOT_FOUND = ORDER_NOT_FOUND
 _STATUS_REASON = {
     "FILLED": "filled",
     "CANCELED": "cancelled",
@@ -516,6 +577,98 @@ _STATUS_REASON = {
 }
 
 
+def unresolved_submits(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Submits whose outcome is unknown and can be looked up by client order id.
+
+    Two shapes: an `intent` with no placement, refusal or resolution (the run
+    died mid-submit), and a `submit_unknown` placement with no resolution. A
+    row with no `client_order_id` predates #1023 and stays a manual check.
+    """
+    settled = {
+        r.get("client_order_id")
+        for r in rows
+        if r.get("kind") in ("placement", "refused", "resolved")
+    }
+    resolved = {r.get("client_order_id") for r in rows if r.get("kind") == "resolved"}
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        cid = r.get("client_order_id")
+        if cid is None:
+            continue
+        orphan_intent = r.get("kind") == "intent" and cid not in settled
+        unknown_placement = (
+            r.get("kind") == "placement"
+            and r.get("terminal_reason") == "submit_unknown"
+            and cid not in resolved
+        )
+        if orphan_intent or unknown_placement:
+            out.append(r)
+    return out
+
+
+def resolve_unknown_submits(
+    client: Any, ledger_path: Path, *, now_ms: int
+) -> list[dict[str, Any]]:
+    """Look each `unresolved_submits` row up by its client order id (#1023).
+
+    Found: a `resolved` row carrying the order id, which `refresh_orders`
+    then polls like any placement. Not found: a `lookup_miss` row, and after
+    NEVER_PLACED_AFTER_MISSES of them (one per `--refresh`) a `resolved` row
+    with status NEVER_PLACED and no order id. The card stays suppressed
+    either way: re-presenting it is a decision, not a side effect of a read.
+    A lookup that fails warns and leaves the row for the next refresh.
+    """
+    rows = read_jsonl(ledger_path)
+    misses: dict[Any, int] = {}
+    for r in rows:
+        if r.get("kind") == "lookup_miss":
+            cid = r.get("client_order_id")
+            misses[cid] = misses.get(cid, 0) + 1
+    written: list[dict[str, Any]] = []
+    for r in unresolved_submits(rows):
+        cid = str(r["client_order_id"])
+        symbol = str(r["symbol"])
+        try:
+            order = find_order_by_client_id(client, symbol, cid, conditional=False)
+        except Exception as exc:  # noqa: BLE001 - says nothing about the order
+            print(
+                f"! {symbol} {cid}: lookup failed ({exc!r}) - left unresolved, "
+                "retried on the next --refresh"
+            )
+            continue
+        base = {
+            "client_order_id": cid,
+            "symbol": symbol,
+            "card_generated_at_ms": r.get("card_generated_at_ms"),
+            "resolved_from": r["kind"],
+        }
+        out: dict[str, Any]
+        if order is not None:
+            out = {
+                "kind": "resolved",
+                **base,
+                "order_id": int(order["orderId"]),
+                "status": str(order.get("status")),
+                "resolved_at_ms": now_ms,
+            }
+        else:
+            n = misses.get(cid, 0) + 1
+            if n < NEVER_PLACED_AFTER_MISSES:
+                out = {"kind": "lookup_miss", **base, "misses": n, "at_ms": now_ms}
+            else:
+                out = {
+                    "kind": "resolved",
+                    **base,
+                    "order_id": None,
+                    "status": "NEVER_PLACED",
+                    "misses": n,
+                    "resolved_at_ms": now_ms,
+                }
+        _append_line(ledger_path, out)
+        written.append(out)
+    return written
+
+
 def refresh_orders(
     client: Any,
     ledger_path: Path,
@@ -523,7 +676,11 @@ def refresh_orders(
     marks: dict[str, float],
     now_ms: int,
 ) -> list[dict[str, Any]]:
-    """Poll each open placement once; append a terminal row when it closed.
+    """Resolve unknown submits by client id, then poll each open order once.
+
+    Returns every row written: `resolved` / `lookup_miss` rows from
+    `resolve_unknown_submits` first, then one `terminal` row per order that
+    closed. An order found by its client id is polled in the same call.
 
     Age-at-terminal and price-drift-at-cancel are derivable by joining the two
     row kinds on order_id - the whole of the max_order_age /
@@ -549,11 +706,11 @@ def refresh_orders(
     about that order's state, so it stays open and is retried on the next
     invocation, which is where the self-healing actually lives.
     """
+    written = resolve_unknown_submits(client, ledger_path, now_ms=now_ms)
     rows = read_jsonl(ledger_path)
     terminal_ids = {r.get("order_id") for r in rows if r.get("kind") == "terminal"}
-    written: list[dict[str, Any]] = []
     for p in rows:
-        if p.get("kind") != "placement" or not p.get("order_id"):
+        if p.get("kind") not in ("placement", "resolved") or not p.get("order_id"):
             continue
         if p["order_id"] in terminal_ids:
             continue
