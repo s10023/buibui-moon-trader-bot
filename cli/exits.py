@@ -26,6 +26,7 @@ from card.config import CardConfig
 from portfolio.sizing import SizingConfig
 from trade.binance_futures import BinanceFuturesAdapter
 from trade.exit_manager import (
+    DEFAULT_HEARTBEAT_PATH,
     DEFAULT_LEDGER_PATH,
     DEFAULT_TP1_FRAC,
     PollContext,
@@ -35,6 +36,7 @@ from trade.exit_manager import (
     metric_report,
     poll_episode,
     read_ledger,
+    write_heartbeat,
 )
 
 
@@ -200,6 +202,20 @@ def run_watch(args: argparse.Namespace) -> None:
                 errors.add(key)
                 if key not in alerted:
                     notify(f"exit-manager {ep.symbol} {ep.side}: poll FAILED ({exc!r})")
+        if args.live:  # a dry run protects nothing, so it must not claim a watcher
+            try:
+                write_heartbeat(
+                    Path(args.heartbeat),
+                    now_ms=_now_ms(),
+                    interval_s=args.interval,
+                    errors=sorted(errors),
+                )
+            except OSError as exc:  # the heartbeat must never stop the watch it reports
+                errors.add("heartbeat")
+                if "heartbeat" not in alerted:
+                    notify(
+                        f"exit-manager: heartbeat write FAILED ({exc!r}); still polling"
+                    )
         if alerted - errors:
             print(f"cleared: {sorted(alerted - errors)}")
         alerted = errors
@@ -262,5 +278,10 @@ def add_exits_subparser(
         help="terminal only; a live watch otherwise requires Telegram",
     )
     w.add_argument("--config", default=None, help="card config TOML (for [bet_sizing])")
+    w.add_argument(
+        "--heartbeat",
+        default=DEFAULT_HEARTBEAT_PATH,
+        help="file a live watch rewrites every poll round (the daily check reads it)",
+    )
     _common(w)
     w.set_defaults(func=run_watch)

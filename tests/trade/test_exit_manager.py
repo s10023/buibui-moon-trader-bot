@@ -30,7 +30,10 @@ from trade.exit_manager import (
     disarm,
     metric_report,
     poll_episode,
+    read_heartbeat,
     read_ledger,
+    watcher_gap,
+    write_heartbeat,
 )
 
 SYM = "AAAUSDT"
@@ -789,3 +792,48 @@ def test_disarm_before_placement_ends_it_after_placement_stands_down(
     _poll(ex, ledger, now=2_500)
     assert "stood down" in disarm(ledger, symbol=SYM, side="LONG", now_ms=3_000)
     assert read_ledger(ledger)[0][1].status == STATUS_STOOD_DOWN
+
+
+# ----- watcher heartbeat (#1000) -----
+
+
+def test_heartbeat_round_trips_and_a_torn_file_reads_as_missing(tmp_path: Path) -> None:
+    hb = tmp_path / "journal" / "hb.json"
+    write_heartbeat(hb, now_ms=5_000, interval_s=15.0, errors=["-2015"])
+    assert read_heartbeat(hb) == {
+        "at_ms": 5_000,
+        "interval_s": 15.0,
+        "errors": ["-2015"],
+    }
+    hb.write_text('{"at_ms": 5', encoding="utf-8")
+    assert read_heartbeat(hb) is None
+    assert read_heartbeat(tmp_path / "absent.json") is None
+
+
+def test_no_active_episode_is_never_a_gap(ledger: Path) -> None:
+    ex = FakeExchange()
+    _arm(ex, ledger)
+    disarm(ledger, symbol=SYM, side="LONG", now_ms=2_000)
+    episodes, _ = read_ledger(ledger)
+    assert watcher_gap(episodes, None, now_ms=10**12) is None
+
+
+def test_an_armed_episode_needs_a_fresh_heartbeat(ledger: Path) -> None:
+    _arm(FakeExchange(), ledger)
+    episodes, _ = read_ledger(ledger)
+    now = 10_000_000
+    missing = watcher_gap(episodes, None, now_ms=now)
+    assert missing is not None and SYM in missing and "no watcher" in missing
+    fresh = {"at_ms": now - 30_000, "interval_s": 15.0, "errors": []}
+    assert watcher_gap(episodes, fresh, now_ms=now) is None
+    stale = {"at_ms": now - 10 * 60_000, "interval_s": 15.0, "errors": []}
+    gap = watcher_gap(episodes, stale, now_ms=now)
+    assert gap is not None and "10 min ago" in gap
+
+
+def test_a_short_interval_still_gets_the_floor(ledger: Path) -> None:
+    """4 x 1s would call a 60s-old heartbeat stale; the 120s floor keeps it covered."""
+    _arm(FakeExchange(), ledger)
+    episodes, _ = read_ledger(ledger)
+    hb = {"at_ms": 1_000_000 - 60_000, "interval_s": 1.0, "errors": []}
+    assert watcher_gap(episodes, hb, now_ms=1_000_000) is None

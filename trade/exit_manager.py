@@ -44,6 +44,7 @@ when the ledger shows it neither placed nor unresolved.
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -72,6 +73,13 @@ from trade.binance_futures import (
 from trade.routing import OrderIntent
 
 DEFAULT_LEDGER_PATH = "docs/plans/journal/exit-manager.jsonl"
+# A live watch overwrites this after every poll round (#1000). A quiet poll
+# writes no ledger row, so the ledger cannot say whether a watcher is running.
+DEFAULT_HEARTBEAT_PATH = "docs/plans/journal/exit-manager.heartbeat.json"
+# The watcher is missing once its heartbeat is this many intervals old, and
+# never sooner than the floor, so a slow round of network calls is not a gap.
+HEARTBEAT_STALE_POLLS = 4
+HEARTBEAT_STALE_FLOOR_S = 120.0
 DEFAULT_TP1_FRAC = 0.5
 
 # Success metric (#981), stated before first live use: maker share of exit
@@ -287,6 +295,60 @@ def find_active(episodes: list[Episode], symbol: str, side: str) -> Episode | No
     for ep in episodes:
         if ep.active and ep.symbol == symbol and ep.side == side:
             return ep
+    return None
+
+
+# ----- watcher heartbeat (#1000) -----
+
+
+def write_heartbeat(
+    path: Path, *, now_ms: int, interval_s: float, errors: list[str]
+) -> None:
+    """Record that a live watch finished a poll round. Replaced, never appended.
+
+    Written through a temp file and a rename, so a reader never sees half a
+    file. `errors` carries the round's failures (a -2015 among them): the
+    watcher is alive but may be protecting nothing, and the reader says so.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    body = {"at_ms": now_ms, "interval_s": interval_s, "errors": sorted(errors)}
+    tmp.write_text(json.dumps(body), encoding="utf-8")
+    tmp.replace(path)
+
+
+def read_heartbeat(path: Path) -> dict[str, Any] | None:
+    """The last heartbeat, or None when it is missing or unreadable."""
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(body, dict) or not isinstance(body.get("at_ms"), int):
+        return None
+    return body
+
+
+def watcher_gap(
+    episodes: list[Episode], heartbeat: dict[str, Any] | None, *, now_ms: int
+) -> str | None:
+    """Why an active episode has no live watcher, or None when it is covered.
+
+    Every active episode (armed, protected or stood down) needs a running
+    `exits watch --live`: an armed entry that fills with no watcher gets no
+    exits, and nothing else says so. No active episode means no gap, whatever
+    the heartbeat reads.
+    """
+    active = [ep for ep in episodes if ep.active]
+    if not active:
+        return None
+    names = ", ".join(sorted(f"{ep.symbol} {ep.side}" for ep in active))
+    if heartbeat is None:
+        return f"{len(active)} active ({names}), no watcher heartbeat on record"
+    interval = float(heartbeat.get("interval_s") or 0.0)
+    stale_s = max(HEARTBEAT_STALE_POLLS * interval, HEARTBEAT_STALE_FLOOR_S)
+    age_s = (now_ms - heartbeat["at_ms"]) / 1000.0
+    if age_s > stale_s:
+        return f"{len(active)} active ({names}), watcher last seen {age_s / 60:.0f} min ago"
     return None
 
 
