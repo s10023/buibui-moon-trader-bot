@@ -24,8 +24,10 @@ from card.orders import (
     read_jsonl_counted,
     refresh_orders,
     scan_candidates,
+    unresolved_submits,
 )
 from trade.binance_futures import (
+    NEVER_PLACED_AFTER_MISSES,
     APIError,
     BinanceFuturesAdapter,
     UnconfirmedOrderError,
@@ -33,6 +35,7 @@ from trade.binance_futures import (
 from trade.routing import ExchangeFilters
 
 NOW_MS = 1_756_000_000_000
+CARD_CID = f"cd-{NOW_MS - 60_000}"  # every _cand's generated_at_ms
 
 _FILT = ExchangeFilters(
     symbol="BTCUSDT",
@@ -329,8 +332,11 @@ def test_place_orders_writes_placement_row_with_instrumentation(
         now_ms=NOW_MS,
     )
     assert len(rows) == 1
-    row = read_jsonl(ledger)[0]
+    intent, row = read_jsonl(ledger)
+    # #1023: the intent row, carrying the id, lands BEFORE the submit
+    assert intent["kind"] == "intent" and intent["client_order_id"] == CARD_CID
     assert row["kind"] == "placement" and row["order_id"] == 42
+    assert row["client_order_id"] == CARD_CID
     assert row["state_digest"] == "abc123"
     assert row["card_generated_at_ms"] == NOW_MS - 60_000
     assert row["mark_at_placement"] == 100.2
@@ -345,6 +351,7 @@ def test_place_orders_writes_placement_row_with_instrumentation(
     # hedge-mode wire shape came from Task 1
     kwargs = client.futures_create_order.call_args.kwargs
     assert kwargs["positionSide"] == "LONG" and "reduceOnly" not in kwargs
+    assert kwargs["newClientOrderId"] == CARD_CID
 
 
 def test_gtx_rejection_is_recorded_not_raised(tmp_path: Path) -> None:
@@ -371,7 +378,7 @@ def test_gtx_rejection_is_recorded_not_raised(tmp_path: Path) -> None:
     assert row["position_mode"] == "one_way"  # dual_side=False -> one-way wire shape
 
 
-def test_non_post_only_api_error_propagates_and_ledger_untouched(
+def test_non_post_only_api_error_propagates_and_releases_the_card(
     tmp_path: Path,
 ) -> None:
     """A -5022 is recorded as gtx_rejected; every OTHER code must NOT be.
@@ -404,7 +411,11 @@ def test_non_post_only_api_error_propagates_and_ledger_untouched(
             now_ms=NOW_MS,
         )
     assert exc_info.value.code == -2019
-    assert not ledger.exists()  # a propagated error must not touch the ledger
+    # A refusal means nothing exists: the intent is released by a `refused`
+    # row, never recorded as a placement, and the card re-presents.
+    kinds = [r["kind"] for r in read_jsonl(ledger)]
+    assert kinds == ["intent", "refused"]
+    assert len(scan_candidates([_trade_row()], read_jsonl(ledger), NOW_MS)) == 1
 
 
 def test_vetoed_decisions_are_skipped_and_dry_run_writes_nothing(
@@ -567,7 +578,7 @@ def test_refresh_maps_expired_in_match_to_expired(tmp_path: Path) -> None:
 
     This account rests a card order and an XS order on the same symbol --
     exactly the collision check_placement's XS guard exists for, arriving by
-    a different route (self-trade prevention rather than cancel_open_orders).
+    a different route (self-trade prevention rather than position netting).
     """
     ledger = _ledger_with_placement(tmp_path)
     client = MagicMock()
@@ -953,8 +964,9 @@ def test_run_place_wires_the_xs_guard_arguments(
     the parser alone, so a slip in `run_place` -- `managed=False`, or the
     marker renamed under `docs/plans/` -- leaves the guard PERMANENTLY INERT
     with every test still green. This is the guard the spec calls the
-    feature's original blocker: `cancel_open_orders` is symbol-WIDE, and
-    `config/universe.toml` leads with exactly the carded majors.
+    feature's original blocker. #1023 removed the symbol-wide cancel, but a
+    live XS run still trades every position on its symbols to the target
+    book, and `config/universe.toml` leads with exactly the carded majors.
 
     BTCUSDT is read from the real committed universe, so a symbol leaving that
     file surfaces here rather than silently.
@@ -1096,12 +1108,13 @@ def test_submit_timeout_records_submit_unknown_then_reraises(
             equity=None,
             now_ms=NOW_MS,
         )
-    rows = read_jsonl(ledger)
+    rows = [r for r in read_jsonl(ledger) if r["kind"] == "placement"]
     assert len(rows) == 1
-    assert rows[0]["kind"] == "placement" and rows[0]["symbol"] == "BTCUSDT"
+    assert rows[0]["symbol"] == "BTCUSDT"
     assert rows[0]["order_id"] is None
     assert rows[0]["terminal_reason"] == "submit_unknown"
-    assert "MANUALLY" in capsys.readouterr().out
+    assert rows[0]["client_order_id"] == CARD_CID
+    assert "card-orders --refresh" in capsys.readouterr().out
 
 
 def test_unacknowledged_2xx_records_submit_unknown_with_the_raw_body(
@@ -1129,12 +1142,12 @@ def test_unacknowledged_2xx_records_submit_unknown_with_the_raw_body(
             equity=None,
             now_ms=NOW_MS,
         )
-    rows = read_jsonl(ledger)
+    rows = [r for r in read_jsonl(ledger) if r["kind"] == "placement"]
     assert len(rows) == 1
     assert rows[0]["order_id"] is None
     assert rows[0]["terminal_reason"] == "submit_unknown"
     assert "-2022" in rows[0]["submit_error"]
-    assert "MANUALLY" in capsys.readouterr().out
+    assert "card-orders --refresh" in capsys.readouterr().out
 
 
 def test_aggregate_names_the_rows_whose_risk_is_unknown() -> None:
@@ -1180,3 +1193,177 @@ def test_aggregate_names_the_rows_whose_risk_is_unknown() -> None:
         now_ms=NOW_MS,
     )
     assert "UNKNOWN" not in next(s for s in out if s.startswith("AGGREGATE"))
+
+
+# ----- #1023: unknown submits resolved by client order id -----
+
+
+def _orphan_intent_ledger(tmp_path: Path) -> Path:
+    """What a run leaves when it dies between the submit and its placement row."""
+    ledger = tmp_path / "card-orders.jsonl"
+    intent = {
+        "kind": "intent",
+        "client_order_id": CARD_CID,
+        "symbol": "BTCUSDT",
+        "direction": "long",
+        "card_generated_at_ms": NOW_MS - 60_000,
+        "at_ms": NOW_MS,
+        "limit_price": 100.0,
+        "qty": 1.5,
+    }
+    ledger.write_text(json.dumps(intent) + "\n", encoding="utf-8")
+    return ledger
+
+
+def _lookup_client(found: dict[str, Any] | None) -> MagicMock:
+    """Answers a client-id lookup with `found` (or -2013), and polls it as FILLED."""
+    client = MagicMock()
+
+    def _get(symbol: str, **params: Any) -> dict[str, Any]:
+        if "origClientOrderId" in params:
+            if found is None:
+                raise _api_error(-2013, "Order does not exist.")
+            return dict(found)
+        return _filled_order()
+
+    client.futures_get_order.side_effect = _get
+    return client
+
+
+def test_an_orphan_intent_suppresses_the_card_until_refused() -> None:
+    row = _trade_row()
+    intent = {
+        "kind": "intent",
+        "client_order_id": CARD_CID,
+        "symbol": "BTCUSDT",
+        "card_generated_at_ms": row["generated_at_ms"],
+    }
+    assert scan_candidates([row], [intent], NOW_MS) == []  # it may exist
+    refused = {"kind": "refused", "client_order_id": CARD_CID}
+    assert len(scan_candidates([row], [intent, refused], NOW_MS)) == 1
+
+
+def test_refresh_finds_an_orphan_intent_by_id_and_polls_it(tmp_path: Path) -> None:
+    ledger = _orphan_intent_ledger(tmp_path)
+    client = _lookup_client({"orderId": 77, "status": "NEW"})
+    rows = refresh_orders(client, ledger, marks={}, now_ms=NOW_MS + 1)
+    resolved, terminal = rows
+    assert resolved["kind"] == "resolved" and resolved["order_id"] == 77
+    assert resolved["resolved_from"] == "intent"
+    assert terminal["kind"] == "terminal" and terminal["order_id"] == 77
+    first = client.futures_get_order.call_args_list[0].kwargs
+    assert first == {"symbol": "BTCUSDT", "origClientOrderId": CARD_CID}
+    assert unresolved_submits(read_jsonl(ledger)) == []
+
+
+def test_refresh_resolves_a_submit_unknown_placement(tmp_path: Path) -> None:
+    client = MagicMock()
+    client.futures_create_order.side_effect = ConnectionError("read timed out")
+    ledger = tmp_path / "card-orders.jsonl"
+    with pytest.raises(ConnectionError):
+        place_orders(
+            BinanceFuturesAdapter(client, mode="live"),
+            [_decision()],
+            ledger_path=ledger,
+            dual_side=True,
+            marks={},
+            books={},
+            positions={},
+            equity=None,
+            now_ms=NOW_MS,
+        )
+    (pending,) = unresolved_submits(read_jsonl(ledger))
+    assert pending["kind"] == "placement"  # one lookup, not one per row
+    rows = refresh_orders(
+        _lookup_client({"orderId": 78, "status": "NEW"}),
+        ledger,
+        marks={},
+        now_ms=NOW_MS + 1,
+    )
+    assert [(r["kind"], r["order_id"]) for r in rows] == [
+        ("resolved", 78),
+        ("terminal", 78),
+    ]
+    assert rows[0]["resolved_from"] == "placement"
+
+
+def test_refresh_calls_an_id_never_placed_only_after_n_misses(tmp_path: Path) -> None:
+    ledger = _orphan_intent_ledger(tmp_path)
+    client = _lookup_client(None)
+    for n in range(1, NEVER_PLACED_AFTER_MISSES):
+        (miss,) = refresh_orders(client, ledger, marks={}, now_ms=NOW_MS + n)
+        assert miss["kind"] == "lookup_miss" and miss["misses"] == n
+    (final,) = refresh_orders(client, ledger, marks={}, now_ms=NOW_MS + 9)
+    assert final["kind"] == "resolved" and final["status"] == "NEVER_PLACED"
+    assert final["order_id"] is None
+    client.futures_get_order.reset_mock()
+    assert refresh_orders(client, ledger, marks={}, now_ms=NOW_MS + 10) == []
+    client.futures_get_order.assert_not_called()  # settled, never asked again
+    # Re-presenting the card is the operator's call, not a side effect of a read.
+    assert scan_candidates([_trade_row()], read_jsonl(ledger), NOW_MS) == []
+
+
+def test_refresh_lookup_failure_warns_and_writes_nothing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ledger = _orphan_intent_ledger(tmp_path)
+    client = MagicMock()
+    client.futures_get_order.side_effect = ConnectionError("read timed out")
+    assert refresh_orders(client, ledger, marks={}, now_ms=NOW_MS) == []
+    assert "lookup failed" in capsys.readouterr().out
+    assert [r["kind"] for r in read_jsonl(ledger)] == ["intent"]
+
+
+def test_a_pre_1023_submit_unknown_row_is_never_looked_up(tmp_path: Path) -> None:
+    """No client id on the row means nothing to look it up by: still manual."""
+    legacy = {
+        "kind": "placement",
+        "order_id": None,
+        "symbol": "BTCUSDT",
+        "terminal_reason": "submit_unknown",
+    }
+    assert unresolved_submits([legacy]) == []
+
+
+def test_card_orders_lists_unknown_and_resolved_submits(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The listing reads a resolved order's state through its client id.
+
+    A submit_unknown placement carries no order id, so before #1023 it could
+    only ever read `submit_unknown`. An orphan intent had no row at all.
+    """
+    from cli.card_orders import run_orders
+
+    def _p(cid: str, **kw: Any) -> dict[str, Any]:
+        return {
+            "kind": "placement",
+            "client_order_id": cid,
+            "symbol": "BTCUSDT",
+            "direction": "long",
+            "limit_price": 100.0,
+            "qty": 1.5,
+            **kw,
+        }
+
+    rows = [
+        _p("cd-1", order_id=11),
+        _p("cd-2", order_id=None, terminal_reason="submit_unknown"),
+        {"kind": "resolved", "client_order_id": "cd-2", "order_id": 22, "status": "NEW"},
+        {"kind": "terminal", "order_id": 22, "reason": "filled"},
+        _p("cd-3", order_id=None, terminal_reason="submit_unknown"),
+        {**_p("cd-4"), "kind": "intent"},  # the run died before its placement row
+        {**_p("cd-5"), "kind": "intent"},
+        {"kind": "refused", "client_order_id": "cd-5"},  # refused: nothing to list
+        {**_p("cd-6"), "kind": "intent"},
+        {"kind": "resolved", "client_order_id": "cd-6", "order_id": None,
+         "status": "NEVER_PLACED"},
+    ]  # fmt: skip
+    ledger = tmp_path / "card-orders.jsonl"
+    ledger.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    run_orders(argparse.Namespace(ledger=str(ledger), refresh=False))
+    states = [
+        line.split(maxsplit=5)[-1] for line in capsys.readouterr().out.splitlines()
+    ]
+    unknown = "UNKNOWN - --refresh looks it up by client order id"
+    assert states == ["working", "filled", unknown, unknown, "never_placed"]

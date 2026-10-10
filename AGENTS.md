@@ -391,9 +391,11 @@ the card's own `generated_at_ms`). Wrapped by
 - **`card-place` / `card-orders [--refresh]`** — the ONE deliberate exception to
   advisory-only: a picklist places picked TRADE cards as post-only GTX limit ENTRIES
   ONLY (no stop, no TP), polling fills into `docs/plans/card-orders.jsonl`. REFUSES a
-  `universe.toml` symbol once a live XS marker exists (`cancel_open_orders` is
-  symbol-wide); its header states the one-draw hazard — a TRADE verdict is one draw,
-  never a measurement.
+  `universe.toml` symbol once a live XS marker exists (a live XS run trades any position on
+  its symbols to the book, so a filled entry is netted away); its header states the one-draw
+  hazard — a TRADE verdict is one draw, never a measurement. Each entry is sent under
+  `cd-<generated_at_ms>`, written to an `intent` row first, and `--refresh` resolves an
+  unknown submit by that id (#1023).
 
 ### `buibui exits arm | disarm | status | watch | report`
 
@@ -403,8 +405,11 @@ GTX TP1 partial on the first poll that sees the entry fill, journals every fill 
 to `docs/plans/journal/exit-manager.jsonl`, and `report` prints the success metric (maker
 share of exit fills, fee R) against #916's baseline. **Operator edits win:** a moved, resized
 or cancelled exit stands the manager down for that position, and it never re-places or
-repairs anything. ⚠ **An `intent` row precedes every submit, so a run that dies mid-submit is
-stood down as UNKNOWN on the next poll, never placed twice — do not "simplify" it away.** A live
+repairs anything. ⚠ **An `intent` row carrying the leg's client order id
+(`ex-<armed_at_ms>-<L|S>-<leg>`, #1023) precedes every submit, so an UNKNOWN submit is looked up
+by that id on the next poll: found is recorded, absent on 3 polls is re-placed under the same
+id, and a failed lookup or an id-less row still stands down. Never placed twice — do not
+"simplify" it away.** A live
 watch refuses to start without Telegram unless `--no-telegram`, and a -2015 (the key's
 dynamic-IP allowlist) alerts once per outage. Without `--live` it places and records nothing.
 
@@ -1020,11 +1025,11 @@ as correct**, which is why the gates were green throughout. Deep ref
 **XS execution** — the maker/taker split, GTX book-touch pricing, the cancel-before-plan
 precondition and the taker `fee_pct` that keeps the sleeve's gate verdict a floor all ride
 the `xs-execution` card (deep ref `.claude/context/execution.md`). **The deployment
-consequence stays here: a dedicated sub-account is a hard blocker.** Two independent reasons
-— `trade/routing.py:69` closes non-book positions, and inside the managed set
-`cancel_open_orders` is symbol-WIDE, so it also cancels the operator's own resting orders on
-BTCUSDT/ETHUSDT/SOLUSDT, exactly where a discretionary book sits and exactly what
-`config/universe.toml` leads with.
+consequence stays here: a dedicated sub-account is a hard blocker.** `trade/routing.py:77`
+(`is_close`) closes every non-book position, including a discretionary one on
+BTCUSDT/ETHUSDT/SOLUSDT, exactly what `config/universe.toml` leads with. ⚠ **#1023 removed only
+the second reason**: the symbol-wide `cancel_open_orders` is gone, and a run now cancels only its
+own `xs-` client-id orders, each by `orderId`. That spares the operator's orders, not positions.
 
 **When you fold Sharpe to `abs()` for a negative-direction verdict, disclose the cost** —
 folding shrinks trial dispersion in a mixed-sign family, so the gate becomes marginally

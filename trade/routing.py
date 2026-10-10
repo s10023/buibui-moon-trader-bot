@@ -37,6 +37,9 @@ class OrderIntent:
     position_side: str | None = None  # "LONG" | "SHORT" on a hedge-mode account
     stop_price: float | None = None  # trigger price; required by a conditional type
     close_position: bool = False  # conditional only: close the whole side, no qty
+    # Our own id, sent as newClientOrderId (clientAlgoId on the algo route) so
+    # an order whose submit outcome is unknown can be looked up by it (#1023).
+    client_order_id: str | None = None
 
 
 @dataclass(frozen=True)

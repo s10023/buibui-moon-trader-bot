@@ -14,8 +14,13 @@ from typing import Any
 import pytest
 
 from portfolio.sizing import SizingConfig
-from trade.binance_futures import APIError, BinanceFuturesAdapter
+from trade.binance_futures import (
+    NEVER_PLACED_AFTER_MISSES,
+    APIError,
+    BinanceFuturesAdapter,
+)
 from trade.exit_manager import (
+    STATUS_ARMED,
     STATUS_CLOSED,
     STATUS_PROTECTED,
     STATUS_STOOD_DOWN,
@@ -56,6 +61,10 @@ class FakeExchange:
         self.created: list[dict[str, Any]] = []
         self.cancelled: list[dict[str, Any]] = []
         self.create_errors: dict[str, BaseException] = {}
+        # Types whose order IS placed but whose response never arrives.
+        self.lost_responses: set[str] = set()
+        self.lookups: list[dict[str, Any]] = []
+        self.lookup_error: BaseException | None = None
         self.read_error: BaseException | None = None
         self.mark = 100.0
         self._next = 1000
@@ -118,8 +127,24 @@ class FakeExchange:
             return [dict(r) for r in self.algo.values() if r["algoStatus"] == "NEW"]
         return [dict(r) for r in self.orders.values() if r["status"] == "NEW"]
 
-    def futures_get_order(self, symbol: str, orderId: int) -> dict[str, Any]:
-        return dict(self.orders[orderId])
+    def futures_get_order(self, symbol: str, **params: Any) -> dict[str, Any]:
+        if "orderId" in params:
+            return dict(self.orders[params["orderId"]])
+        self.lookups.append(dict(params))
+        if self.lookup_error is not None:
+            raise self.lookup_error
+        if "clientAlgoId" in params:
+            rows = [
+                r
+                for r in self.algo.values()
+                if r["clientAlgoId"] == params["clientAlgoId"]
+            ]
+        else:
+            cid = params["origClientOrderId"]
+            rows = [r for r in self.orders.values() if r["clientOrderId"] == cid]
+        if not rows:
+            raise _api_error(-2013, "Order does not exist.")
+        return dict(rows[0])
 
     def futures_account_trades(
         self, symbol: str, startTime: int, endTime: int, limit: int
@@ -138,6 +163,7 @@ class FakeExchange:
         if params["type"] == "STOP_MARKET":
             self.algo[self._next] = {
                 "algoId": self._next,
+                "clientAlgoId": params.get("clientAlgoId"),
                 "symbol": SYM,
                 "orderType": "STOP_MARKET",
                 "triggerPrice": str(params["stopPrice"]),
@@ -145,14 +171,19 @@ class FakeExchange:
                 "closePosition": True,
                 "algoStatus": "NEW",
             }
-            return {"algoId": self._next}
-        self.orders[self._next] = {
-            "orderId": self._next,
-            "status": "NEW",
-            "price": str(params["price"]),
-            "origQty": str(params["quantity"]),
-        }
-        return {"orderId": self._next, "status": "NEW"}
+            ack: dict[str, Any] = {"algoId": self._next}
+        else:
+            self.orders[self._next] = {
+                "orderId": self._next,
+                "clientOrderId": params.get("newClientOrderId"),
+                "status": "NEW",
+                "price": str(params["price"]),
+                "origQty": str(params["quantity"]),
+            }
+            ack = {"orderId": self._next, "status": "NEW"}
+        if params["type"] in self.lost_responses:
+            raise ConnectionError("read timed out")  # placed, but no reply
+        return ack
 
     def futures_cancel_order(self, **params: Any) -> dict[str, Any]:
         self.cancelled.append(dict(params))
@@ -316,15 +347,20 @@ def test_refused_stop_stands_down_and_places_no_tp1(ledger: Path) -> None:
 
 
 def test_unacknowledged_stop_is_unknown_not_refused(ledger: Path) -> None:
-    """#829: a 2xx body with no algoId means the stop MAY exist."""
+    """#829: a 2xx body with no algoId means the stop MAY exist.
+
+    Since #1023 that is not a stand-down: the next poll looks it up by id.
+    """
     ex = FakeExchange()
     ex.create_errors["STOP_MARKET"] = RuntimeError("no algoId in body")
     _arm(ex, ledger)
     ex.fill("LONG", 2.0, 100.0)
     notes = _poll(ex, ledger)
     ep = _episode(ledger)
-    assert ep.status == STATUS_STOOD_DOWN and ep.failed["stop"] == "unknown"
-    assert "UNKNOWN" in notes[0]
+    assert ep.status == STATUS_ARMED and ep.failed["stop"] == "unknown"
+    assert ep.unresolved == {"stop"}
+    assert "UNKNOWN" in notes[0] and "ex-1000-L-stop" in notes[0]
+    assert [c["type"] for c in ex.created] == ["STOP_MARKET"]  # no TP1 yet
 
 
 def test_gtx_rejected_tp1_keeps_the_stop_and_stays_protected(ledger: Path) -> None:
@@ -349,7 +385,11 @@ def test_stop_already_through_mark_places_nothing(ledger: Path) -> None:
 
 
 def test_an_interrupted_placement_is_stood_down_not_placed_again(ledger: Path) -> None:
-    """An intent with no result row means a run died mid-submit."""
+    """An intent with no result row means a run died mid-submit.
+
+    This row predates #1023 and carries no client order id, so there is
+    nothing to look up: it still stands down rather than guess.
+    """
     ex = FakeExchange()
     row = _arm(ex, ledger)
     with ledger.open("a", encoding="utf-8") as f:
@@ -364,6 +404,177 @@ def test_an_interrupted_placement_is_stood_down_not_placed_again(ledger: Path) -
     assert ex.created == []
     assert _episode(ledger).status == STATUS_STOOD_DOWN
     assert "interrupted" in notes[0]
+
+
+# ----- #1023: client order ids, and resolving an UNKNOWN submit by them -----
+
+
+def _rows(ledger: Path, kind: str) -> list[dict[str, Any]]:
+    rows = [
+        json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()
+    ]
+    return [r for r in rows if r["kind"] == kind]
+
+
+def _orphan_intent(ledger: Path, episode_id: str, **fields: Any) -> None:
+    """The row a run leaves when it dies between the submit and its result."""
+    with ledger.open("a", encoding="utf-8") as f:
+        row = {"kind": "intent", "episode_id": episode_id, **fields}
+        f.write(json.dumps(row) + "\n")
+
+
+def test_each_leg_is_sent_under_the_id_its_intent_row_recorded(ledger: Path) -> None:
+    ex = FakeExchange()
+    _arm(ex, ledger)
+    ex.fill("LONG", 2.0, 100.0)
+    _poll(ex, ledger)
+    stop, tp1 = ex.created
+    assert stop["clientAlgoId"] == "ex-1000-L-stop" and "newClientOrderId" not in stop
+    assert tp1["newClientOrderId"] == "ex-1000-L-tp1"
+    intents = {r["leg"]: r["client_order_id"] for r in _rows(ledger, "intent")}
+    assert intents == {"stop": "ex-1000-L-stop", "tp1": "ex-1000-L-tp1"}
+
+
+def test_a_stop_whose_reply_was_lost_is_found_by_id_not_placed_twice(
+    ledger: Path,
+) -> None:
+    ex = FakeExchange()
+    ex.lost_responses.add("STOP_MARKET")
+    _arm(ex, ledger)
+    ex.fill("LONG", 2.0, 100.0)
+    _poll(ex, ledger)  # the stop rests, the reply is lost: UNKNOWN
+    ex.lost_responses.clear()
+    notes = _poll(ex, ledger, now=3_000)
+    assert ex.lookups == [{"clientAlgoId": "ex-1000-L-stop"}]
+    assert [c["type"] for c in ex.created] == ["STOP_MARKET", "LIMIT"]
+    ep = _episode(ledger)
+    (algo_id,) = ex.algo
+    assert ep.status == STATUS_PROTECTED and ep.legs["stop"].algo_id == algo_id
+    assert ep.legs["stop"].price == 95.0
+    assert "found on the exchange" in notes[0]
+    assert _poll(ex, ledger, now=4_000) == []  # and it is now managed as normal
+
+
+def test_a_crash_after_the_stop_rested_resumes_without_a_second_stop(
+    ledger: Path,
+) -> None:
+    ex = FakeExchange()
+    row = _arm(ex, ledger)
+    ex.fill("LONG", 2.0, 100.0)
+    ex.futures_create_order(
+        symbol=SYM, side="SELL", type="STOP_MARKET", stopPrice=95.0,
+        clientAlgoId="ex-1000-L-stop",
+    )  # fmt: skip
+    ex.created.clear()
+    _orphan_intent(
+        ledger, row["episode_id"], leg="stop", stop_price=95.0,
+        client_order_id="ex-1000-L-stop",
+    )  # fmt: skip
+    _poll(ex, ledger)
+    assert [c["type"] for c in ex.created] == ["LIMIT"]  # TP1 only
+    assert _episode(ledger).status == STATUS_PROTECTED
+
+
+def test_a_stop_never_placed_is_placed_again_after_n_misses_under_the_same_id(
+    ledger: Path,
+) -> None:
+    ex = FakeExchange()
+    row = _arm(ex, ledger)
+    ex.fill("LONG", 2.0, 100.0)
+    _orphan_intent(
+        ledger, row["episode_id"], leg="stop", stop_price=95.0,
+        client_order_id="ex-1000-L-stop",
+    )  # fmt: skip
+    for t in range(1, NEVER_PLACED_AFTER_MISSES):
+        assert _poll(ex, ledger, now=2_000 + t) == []
+        assert ex.created == [], "placed before the id was proven absent"
+        assert _episode(ledger).lookup_misses == {"stop": t}
+    notes = _poll(ex, ledger, now=9_000)
+    assert "never placed" in notes[0]
+    stop, _tp1 = ex.created
+    assert stop["clientAlgoId"] == "ex-1000-L-stop"
+    ep = _episode(ledger)
+    assert ep.status == STATUS_PROTECTED and "stop" in ep.legs
+
+
+def test_a_failed_lookup_stands_down_rather_than_guess(ledger: Path) -> None:
+    ex = FakeExchange()
+    row = _arm(ex, ledger)
+    ex.fill("LONG", 2.0, 100.0)
+    _orphan_intent(
+        ledger, row["episode_id"], leg="stop", stop_price=95.0,
+        client_order_id="ex-1000-L-stop",
+    )  # fmt: skip
+    ex.lookup_error = _api_error(-1003, "Too many requests")
+    notes = _poll(ex, ledger)
+    assert ex.created == []
+    assert _episode(ledger).status == STATUS_STOOD_DOWN
+    assert "lookup of ex-1000-L-stop failed" in notes[0]
+
+
+def test_a_2015_on_the_lookup_raises_loudly(ledger: Path) -> None:
+    ex = FakeExchange()
+    row = _arm(ex, ledger)
+    ex.fill("LONG", 2.0, 100.0)
+    _orphan_intent(
+        ledger, row["episode_id"], leg="stop", stop_price=95.0,
+        client_order_id="ex-1000-L-stop",
+    )  # fmt: skip
+    ex.lookup_error = _api_error(-2015)
+    with pytest.raises(SignedPathRejected):
+        _poll(ex, ledger)
+    assert _episode(ledger).status == STATUS_ARMED  # retried once the key works
+
+
+def test_a_tp1_whose_reply_was_lost_is_found_while_the_stop_protects(
+    ledger: Path,
+) -> None:
+    ex = FakeExchange()
+    ex.lost_responses.add("LIMIT")
+    _arm(ex, ledger)
+    ex.fill("LONG", 2.0, 100.0)
+    notes = _poll(ex, ledger)
+    ep = _episode(ledger)
+    assert ep.status == STATUS_PROTECTED and ep.unresolved == {"tp1"}
+    assert "UNKNOWN" in notes[0]
+    ex.lost_responses.clear()
+    _poll(ex, ledger, now=3_000)
+    ep = _episode(ledger)
+    (tp1_id,) = ex.orders
+    assert ep.status == STATUS_PROTECTED and ep.legs["tp1"].order_id == tp1_id
+    assert (ep.legs["tp1"].price, ep.legs["tp1"].qty) == (110.0, 1.0)
+    assert len(ex.created) == 2
+
+
+def test_a_crash_before_the_protected_row_resumes_without_placing(
+    ledger: Path,
+) -> None:
+    ex = _protected(ledger)
+    lines = ledger.read_text(encoding="utf-8").splitlines()
+    ledger.write_text(
+        "\n".join(r for r in lines if json.loads(r)["kind"] != "protected") + "\n",
+        encoding="utf-8",
+    )
+    assert _episode(ledger).status == STATUS_ARMED
+    _poll(ex, ledger, now=3_000)
+    assert len(ex.created) == 2
+    assert _episode(ledger).status == STATUS_PROTECTED
+
+
+def test_exits_found_on_a_flat_side_stand_down(ledger: Path) -> None:
+    ex = FakeExchange()
+    row = _arm(ex, ledger)
+    ex.futures_create_order(
+        symbol=SYM, side="SELL", type="STOP_MARKET", stopPrice=95.0,
+        clientAlgoId="ex-1000-L-stop",
+    )  # fmt: skip
+    _orphan_intent(
+        ledger, row["episode_id"], leg="stop", stop_price=95.0,
+        client_order_id="ex-1000-L-stop",
+    )  # fmt: skip
+    notes = _poll(ex, ledger)  # found, but nothing is open on the side
+    assert _episode(ledger).status == STATUS_STOOD_DOWN
+    assert "side is flat" in notes[-1]
 
 
 def test_dry_run_places_and_records_nothing(ledger: Path) -> None:

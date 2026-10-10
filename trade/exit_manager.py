@@ -30,8 +30,16 @@ position's bet R, and placement warns when the risk at the stop exceeds it.
 
 Every state change is an append-only row in `DEFAULT_LEDGER_PATH`, and the
 state is rebuilt from those rows on every poll. An `intent` row is written
-before each submit, so a crash between a submit and its result row is
-detected on the next poll and stood down as UNKNOWN rather than re-placed.
+before each submit and carries the leg's own client order id
+(`ex-<armed_at_ms>-<L|S>-<leg>`, #1023), which is what the order is sent
+under. A leg whose outcome is unknown -- a crash between the submit and its
+result row, or a submit that raised without an exchange refusal -- is looked
+up by that id on the next poll: found means it is recorded as placed; missing
+on `NEVER_PLACED_AFTER_MISSES` polls means it was never placed, and an
+unprotected position then gets its stop again under the same id. A failed
+lookup, or an intent row written before ids existed, still stands down
+rather than guess. Nothing is ever placed twice: a leg is submitted only
+when the ledger shows it neither placed nor unresolved.
 """
 
 from __future__ import annotations
@@ -55,9 +63,11 @@ from portfolio.sizing import (
 )
 from trade.binance_futures import (
     KEY_OR_IP_REJECTED,
+    NEVER_PLACED_AFTER_MISSES,
     POST_ONLY_REJECT,
     APIError,
     BinanceFuturesAdapter,
+    make_client_order_id,
 )
 from trade.routing import OrderIntent
 
@@ -86,6 +96,11 @@ STATUS_STOOD_DOWN = "stood_down"
 STATUS_CLOSED = "closed"
 STATUS_DISARMED = "disarmed"
 _TERMINAL = frozenset({STATUS_CLOSED, STATUS_DISARMED})
+CLIENT_ID_PREFIX = "ex"
+# Leg outcomes after which nothing exists on the exchange, so the leg may be
+# submitted again: -2015 turned the request away, and `never_placed` is a
+# client-id lookup that missed NEVER_PLACED_AFTER_MISSES times.
+_RETRYABLE = frozenset({"auth_rejected", "never_placed"})
 
 Notify = Callable[[str], None]
 
@@ -140,6 +155,8 @@ class Episode:
     legs: dict[str, PlacedLeg] = field(default_factory=dict)
     failed: dict[str, str] = field(default_factory=dict)
     open_intents: set[str] = field(default_factory=set)
+    intents: dict[str, dict[str, Any]] = field(default_factory=dict)  # last per leg
+    lookup_misses: dict[str, int] = field(default_factory=dict)
     fills: dict[str, dict[str, Any]] = field(default_factory=dict)
     position_qty_at_placement: float = 0.0
     entry_price_at_placement: float = 0.0
@@ -162,14 +179,27 @@ class Episode:
     def attempted(self) -> bool:
         """Has any submit been tried whose outcome rules out a retry?
 
-        A -2015 refusal (`auth_rejected`) is the one retryable outcome: the
-        exchange turned the request away before anything existed, so the next
-        poll after the allowlist is fixed may place again.
+        The `_RETRYABLE` outcomes are the exceptions: a -2015 refusal
+        (`auth_rejected`) turned the request away before anything existed, and
+        `never_placed` is a client-id lookup that kept missing.
         """
         return (
             bool(self.open_intents)
             or bool(self.legs)
-            or any(o != "auth_rejected" for o in self.failed.values())
+            or any(o not in _RETRYABLE for o in self.failed.values())
+        )
+
+    @property
+    def unresolved(self) -> set[str]:
+        """Legs whose submit outcome is unknown: an intent with no result, or `unknown`."""
+        return self.open_intents | {
+            leg for leg, o in self.failed.items() if o == "unknown"
+        }
+
+    def client_order_id(self, leg: str) -> str:
+        """The id a leg is sent under; unique per episode, so also per (symbol, side)."""
+        return make_client_order_id(
+            CLIENT_ID_PREFIX, self.armed_at_ms, self.side[0], leg
         )
 
 
@@ -202,10 +232,18 @@ def load_episodes(rows: list[dict[str, Any]]) -> list[Episode]:
             continue
         ep = ep_or_none
         if kind == "intent":
-            ep.open_intents.add(str(r["leg"]))
+            leg = str(r["leg"])
+            ep.open_intents.add(leg)
+            ep.intents[leg] = r
+            ep.failed.pop(leg, None)  # a fresh attempt supersedes a retryable one
+            ep.lookup_misses.pop(leg, None)
+        elif kind == "lookup_miss":
+            leg = str(r["leg"])
+            ep.lookup_misses[leg] = ep.lookup_misses.get(leg, 0) + 1
         elif kind == "placed":
             leg = str(r["leg"])
             ep.open_intents.discard(leg)
+            ep.failed.pop(leg, None)  # an `unknown` leg found by its client id
             ep.legs[leg] = PlacedLeg(
                 leg=leg,
                 price=float(r["price"]),
@@ -422,22 +460,114 @@ def _record_fills(ep: Episode, ctx: PollContext) -> None:
         ep.fills[trade_id] = row
 
 
+def _stand_down(ep: Episode, ctx: PollContext, reason: str) -> None:
+    ctx.write(ep, "stand_down", reason=reason)
+    ep.status = STATUS_STOOD_DOWN
+    ep.stand_down_reason = reason
+    ctx.notify(f"exit-manager {ep.symbol} {ep.side}: STOOD DOWN - {reason}")
+
+
+def _resolve_unknown_legs(ep: Episode, ctx: PollContext) -> None:
+    """Look every unresolved leg up by its client order id (#1023).
+
+    Found: a `placed` row, built from what the intent row SENT, so edit
+    detection still compares the exchange against our own numbers. Missing:
+    a `lookup_miss` row, and after NEVER_PLACED_AFTER_MISSES of them a
+    `never_placed` outcome, which makes the leg submittable again. A lookup
+    that fails, or a leg with no id to look up, stands the episode down.
+    """
+    label = f"exit-manager {ep.symbol} {ep.side}"
+    for leg in sorted(ep.unresolved):
+        intent = ep.intents.get(leg, {})
+        cid = intent.get("client_order_id")
+        if cid is None:
+            # An intent row from before #1023 carries no id: nothing to look up.
+            _stand_down(
+                ep,
+                ctx,
+                f"placement interrupted (submit outcome never recorded for "
+                f"['{leg}'], and the intent carries no client order id); check "
+                "the exchange by hand",
+            )
+            return
+        try:
+            order = ctx.adapter.find_order(ep.symbol, cid, conditional=leg == "stop")
+        except APIError as exc:
+            if _is_key_or_ip_rejection(exc):
+                raise
+            _stand_down(
+                ep, ctx, f"{leg} outcome UNKNOWN and the lookup of {cid} failed ({exc})"
+            )
+            return
+        except Exception as exc:  # noqa: BLE001 - an unknown lookup proves nothing
+            _stand_down(
+                ep,
+                ctx,
+                f"{leg} outcome UNKNOWN and the lookup of {cid} failed ({exc!r})",
+            )
+            return
+        if order is not None:
+            if leg == "stop":
+                placed = PlacedLeg(
+                    leg, float(intent["stop_price"]), None, algo_id=int(order["algoId"])
+                )
+            else:
+                placed = PlacedLeg(
+                    leg,
+                    float(intent["price"]),
+                    float(intent["qty"]),
+                    order_id=int(order["orderId"]),
+                )
+            ctx.write(
+                ep,
+                "placed",
+                leg=leg,
+                price=placed.price,
+                qty=placed.qty,
+                order_id=placed.order_id,
+                algo_id=placed.algo_id,
+                client_order_id=cid,
+                resolved_by="client_order_id",
+            )
+            ep.legs[leg] = placed
+            ep.open_intents.discard(leg)
+            ep.failed.pop(leg, None)
+            ctx.notify(
+                f"{label}: {leg} {cid} found on the exchange; recorded as placed"
+            )
+            continue
+        misses = ep.lookup_misses.get(leg, 0) + 1
+        ctx.write(ep, "lookup_miss", leg=leg, client_order_id=cid, misses=misses)
+        ep.lookup_misses[leg] = misses
+        if misses >= NEVER_PLACED_AFTER_MISSES:
+            ctx.write(
+                ep,
+                "leg_failed",
+                leg=leg,
+                outcome="never_placed",
+                error=f"{cid} not found on {misses} lookups",
+            )
+            ep.open_intents.discard(leg)
+            ep.failed[leg] = "never_placed"
+            ctx.notify(f"{label}: {leg} {cid} was never placed ({misses} lookups)")
+
+
 def _poll_armed(ep: Episode, ctx: PollContext) -> None:
-    if ep.attempted:
-        # A submit was attempted and never reached `protected` or a stand-down:
-        # the run that tried it died between submit and result. What exists on
-        # the exchange is unknown, so stand down rather than place twice.
-        reason = (
-            "placement interrupted (submit outcome never recorded for "
-            f"{sorted(ep.open_intents) or 'a leg'}); check the exchange by hand"
-        )
-        ctx.write(ep, "stand_down", reason=reason)
-        ctx.notify(f"exit-manager {ep.symbol} {ep.side}: STOOD DOWN - {reason}")
-        return
+    if ep.unresolved:
+        _resolve_unknown_legs(ep, ctx)
+        if ep.status != STATUS_ARMED or ep.unresolved:
+            return  # stood down, or still looking
     qty, entry_price = ctx.adapter.get_side_position(
         ep.symbol, ep.side, dual_side=ctx.dual_side
     )
     if qty <= 0.0:
+        if ep.legs:
+            _stand_down(
+                ep,
+                ctx,
+                f"{sorted(ep.legs)} rest on the exchange but the side is flat; "
+                "check by hand",
+            )
         return
     _place_exits(ep, ctx, qty, entry_price)
 
@@ -464,30 +594,115 @@ def _bet_check(
 
 
 def _place_exits(ep: Episode, ctx: PollContext, qty: float, entry_price: float) -> None:
+    """Rest the stop, then TP1, then record `protected`.
+
+    Resumable: a leg the ledger already shows placed, or with a final outcome,
+    is not submitted again, so a run that died between legs (or a leg found by
+    its client id) picks up where it stopped instead of standing down.
+    """
     adapter = ctx.adapter
     filt = adapter.get_filters([ep.symbol]).get(ep.symbol)
-    mark = adapter.get_marks([ep.symbol]).get(ep.symbol)
     tick = filt.price_tick if filt is not None else 0.0
     stop_px = round_to_tick(ep.stop, tick, ep.exit_side)
     tp1_px = round_to_tick(ep.tp1, tick, ep.exit_side)
     label = f"exit-manager {ep.symbol} {ep.side}"
+    position_side = ep.side if ctx.dual_side else None
 
-    # A stop already through mark triggers on arrival (Binance refuses it
-    # -2021); placing nothing and saying so beats a market exit nobody chose.
-    through = mark is not None and (
-        (ep.side == "LONG" and stop_px >= mark)
-        or (ep.side == "SHORT" and stop_px <= mark)
-    )
-    if mark is None or through:
-        why = (
-            "no mark price"
-            if mark is None
-            else f"stop {stop_px} is already through mark {mark}"
+    stop_placed = ep.legs.get("stop")
+    if stop_placed is not None:
+        stop_px = stop_placed.price
+    elif ep.failed.get("stop") not in (None, *_RETRYABLE):
+        # A refusal whose stand-down row was lost with the run that wrote it.
+        _stand_down(
+            ep,
+            ctx,
+            f"stop {ep.failed['stop']} earlier; position NOT protected, protect "
+            "it by hand",
         )
-        reason = f"entry filled ({qty}) but nothing placed: {why}; protect it by hand"
-        ctx.write(ep, "stand_down", reason=reason)
-        ctx.notify(f"{label}: STOOD DOWN - {reason}")
         return
+    else:
+        mark = adapter.get_marks([ep.symbol]).get(ep.symbol)
+        # A stop already through mark triggers on arrival (Binance refuses it
+        # -2021); placing nothing and saying so beats a market exit nobody chose.
+        through = mark is not None and (
+            (ep.side == "LONG" and stop_px >= mark)
+            or (ep.side == "SHORT" and stop_px <= mark)
+        )
+        if mark is None or through:
+            why = (
+                "no mark price"
+                if mark is None
+                else f"stop {stop_px} is already through mark {mark}"
+            )
+            _stand_down(
+                ep,
+                ctx,
+                f"entry filled ({qty}) but nothing placed: {why}; protect it by hand",
+            )
+            return
+        stop_cid = ep.client_order_id("stop")
+        stop_intent = OrderIntent(
+            ep.symbol,
+            ep.exit_side,
+            0.0,
+            True,
+            0.0,
+            "exit_stop",
+            "STOP_MARKET",
+            position_side=position_side,
+            stop_price=stop_px,
+            close_position=True,
+            client_order_id=stop_cid,
+        )
+        ctx.write(
+            ep,
+            "intent",
+            leg="stop",
+            stop_price=stop_px,
+            close_position=True,
+            client_order_id=stop_cid,
+        )
+        try:
+            resp = adapter.submit(stop_intent)
+        except APIError as exc:
+            if _is_key_or_ip_rejection(exc):
+                ctx.write(
+                    ep,
+                    "leg_failed",
+                    leg="stop",
+                    outcome="auth_rejected",
+                    error=repr(exc),
+                )
+                raise SignedPathRejected(f"{ep.symbol} {ep.side} stop", exc) from exc
+            ctx.write(ep, "leg_failed", leg="stop", outcome="refused", error=repr(exc))
+            _stand_down(
+                ep,
+                ctx,
+                f"stop REFUSED by the exchange ({exc}); position NOT protected",
+            )
+            return
+        except Exception as exc:  # noqa: BLE001 - unknown is recorded, then resolved
+            # The stop may exist. The next poll looks it up by its client id
+            # rather than standing down: found is recorded, and only a stop
+            # that is provably absent is submitted again (#1023).
+            ctx.write(ep, "leg_failed", leg="stop", outcome="unknown", error=repr(exc))
+            ctx.notify(
+                f"{label}: stop outcome UNKNOWN ({exc!r}); looking up {stop_cid} "
+                "on the next poll. The position may be unprotected until then."
+            )
+            return
+        if resp.get("dryRun"):
+            print(f"  [dry-run] would rest stop {stop_px} closePosition on {ep.symbol}")
+        else:
+            ctx.write(
+                ep,
+                "placed",
+                leg="stop",
+                price=stop_px,
+                qty=None,
+                algo_id=int(resp["algoId"]),
+                client_order_id=stop_cid,
+            )
 
     # TP1 size: tp1_frac of the position, floored to the lot step and
     # quantised to the step's decimals (python-binance sends a bare str(), so
@@ -499,58 +714,19 @@ def _place_exits(ep: Episode, ctx: PollContext, qty: float, entry_price: float) 
         tp1_qty = round(tp1_qty, _tick_decimals(filt.qty_step))
     tp1_sublot = filt is None or tp1_qty <= 0.0 or tp1_qty < filt.min_qty
 
-    position_side = ep.side if ctx.dual_side else None
-    stop_intent = OrderIntent(
-        ep.symbol,
-        ep.exit_side,
-        0.0,
-        True,
-        0.0,
-        "exit_stop",
-        "STOP_MARKET",
-        position_side=position_side,
-        stop_price=stop_px,
-        close_position=True,
-    )
-    ctx.write(ep, "intent", leg="stop", stop_price=stop_px, close_position=True)
-    try:
-        resp = adapter.submit(stop_intent)
-    except APIError as exc:
-        if _is_key_or_ip_rejection(exc):
-            ctx.write(
-                ep, "leg_failed", leg="stop", outcome="auth_rejected", error=repr(exc)
-            )
-            raise SignedPathRejected(f"{ep.symbol} {ep.side} stop", exc) from exc
-        ctx.write(ep, "leg_failed", leg="stop", outcome="refused", error=repr(exc))
-        reason = f"stop REFUSED by the exchange ({exc}); position NOT protected"
-        ctx.write(ep, "stand_down", reason=reason)
-        ctx.notify(f"{label}: STOOD DOWN - {reason}")
-        return
-    except Exception as exc:  # noqa: BLE001 - unknown is recorded, then surfaced
-        ctx.write(ep, "leg_failed", leg="stop", outcome="unknown", error=repr(exc))
-        reason = f"stop outcome UNKNOWN ({exc!r}); check openAlgoOrders by hand"
-        ctx.write(ep, "stand_down", reason=reason)
-        ctx.notify(f"{label}: STOOD DOWN - {reason}")
-        return
-    if resp.get("dryRun"):
-        print(f"  [dry-run] would rest stop {stop_px} closePosition on {ep.symbol}")
-    else:
-        ctx.write(
-            ep,
-            "placed",
-            leg="stop",
-            price=stop_px,
-            qty=None,
-            algo_id=int(resp["algoId"]),
-        )
-
     tp1_note: str
-    tp1_unknown = False
-    if tp1_sublot:
+    tp1_placed = ep.legs.get("tp1")
+    tp1_earlier = ep.failed.get("tp1")
+    if tp1_placed is not None:
+        tp1_note = f"TP1 {tp1_placed.qty} @ {tp1_placed.price} resting (GTX)"
+    elif tp1_earlier is not None and tp1_earlier not in _RETRYABLE:
+        tp1_note = f"TP1 {tp1_earlier} earlier; the stop still protects"
+    elif tp1_sublot:
         step = filt.qty_step if filt is not None else None
         tp1_note = f"TP1 skipped: {qty} x {ep.tp1_frac} floors below a lot ({step})"
         ctx.write(ep, "leg_failed", leg="tp1", outcome="skipped_sublot", error=tp1_note)
     else:
+        tp1_cid = ep.client_order_id("tp1")
         tp1_intent = OrderIntent(
             ep.symbol,
             ep.exit_side,
@@ -560,8 +736,11 @@ def _place_exits(ep: Episode, ctx: PollContext, qty: float, entry_price: float) 
             "exit_tp1",
             "LIMIT",
             position_side=position_side,
+            client_order_id=tp1_cid,
         )
-        ctx.write(ep, "intent", leg="tp1", price=tp1_px, qty=tp1_qty)
+        ctx.write(
+            ep, "intent", leg="tp1", price=tp1_px, qty=tp1_qty, client_order_id=tp1_cid
+        )
         try:
             resp = adapter.submit(tp1_intent, price=tp1_px)
         except APIError as exc:
@@ -576,8 +755,12 @@ def _place_exits(ep: Episode, ctx: PollContext, qty: float, entry_price: float) 
             tp1_note = f"TP1 {outcome} ({exc}); the stop still protects"
             ctx.write(ep, "leg_failed", leg="tp1", outcome=outcome, error=repr(exc))
         except Exception as exc:  # noqa: BLE001
-            tp1_unknown = True
-            tp1_note = f"TP1 outcome UNKNOWN ({exc!r}); check openOrders by hand"
+            # Resolved by client id on the next poll, as the stop is; the
+            # stop protects meanwhile.
+            tp1_note = (
+                f"TP1 outcome UNKNOWN ({exc!r}); looking up {tp1_cid} on the "
+                "next poll, the stop still protects"
+            )
             ctx.write(ep, "leg_failed", leg="tp1", outcome="unknown", error=repr(exc))
         else:
             if resp.get("dryRun"):
@@ -590,6 +773,7 @@ def _place_exits(ep: Episode, ctx: PollContext, qty: float, entry_price: float) 
                     price=tp1_px,
                     qty=tp1_qty,
                     order_id=int(resp["orderId"]),
+                    client_order_id=tp1_cid,
                 )
                 tp1_note = f"TP1 {tp1_qty} @ {tp1_px} resting (GTX)"
 
@@ -616,10 +800,6 @@ def _place_exits(ep: Episode, ctx: PollContext, qty: float, entry_price: float) 
     for w in warnings:
         msg += f" WARNING: {w}."
     ctx.notify(msg)
-    if tp1_unknown:
-        reason = "TP1 outcome unknown; nothing more is managed on this position"
-        ctx.write(ep, "stand_down", reason=reason)
-        ctx.notify(f"{label}: STOOD DOWN - {reason}")
 
 
 def _detect_edits(
@@ -661,6 +841,10 @@ def _detect_edits(
 def _poll_placed(ep: Episode, ctx: PollContext) -> None:
     adapter = ctx.adapter
     label = f"exit-manager {ep.symbol} {ep.side}"
+    if ep.status == STATUS_PROTECTED and ep.unresolved:
+        # A TP1 whose submit outcome was unknown. A miss keeps the poll going:
+        # the stop is known and still needs watching meanwhile.
+        _resolve_unknown_legs(ep, ctx)
     managing = ep.status == STATUS_PROTECTED
     algo_rows: list[dict[str, Any]] = []
     tp1_order: dict[str, Any] | None = None

@@ -7,9 +7,12 @@ import pytest
 
 from portfolio.sizing import round_to_tick
 from trade.binance_futures import (
+    ORDER_NOT_FOUND,
     APIError,
     BinanceFuturesAdapter,
     UnconfirmedOrderError,
+    find_order_by_client_id,
+    make_client_order_id,
     require_ack,
 )
 from trade.routing import OrderIntent
@@ -250,42 +253,191 @@ def test_ensure_account_config_noop_in_dry_run() -> None:
     client.futures_change_leverage.assert_not_called()
 
 
-def test_get_open_order_symbols_dedups() -> None:
+def test_get_open_orders_returns_rows_with_client_ids_even_in_dry_run() -> None:
+    """Not dry-run-guarded: a dry run must see the real resting orders, since
+    the XS executor picks its own stale ones out of them by client id."""
     client = MagicMock()
     client.futures_get_open_orders.return_value = [
-        {"symbol": "AAAUSDT", "orderId": 1},
-        {"symbol": "AAAUSDT", "orderId": 2},
-        {"symbol": "BBBUSDT", "orderId": 3},
-    ]
-    adapter = BinanceFuturesAdapter(client, mode="live")
-    assert adapter.get_open_order_symbols() == {"AAAUSDT", "BBBUSDT"}
-
-
-def test_get_open_order_symbols_dry_run_hits_the_api() -> None:
-    """Not dry-run-guarded: a dry run must see real resting orders, since
-    that's the exact condition `cancel_open_orders` exists to handle."""
-    client = MagicMock()
-    client.futures_get_open_orders.return_value = [
-        {"symbol": "AAAUSDT", "orderId": 1},
-        {"symbol": "BBBUSDT", "orderId": 2},
+        {"symbol": "AAAUSDT", "orderId": 1, "clientOrderId": "xs-1-AAAUSDT"},
+        {"symbol": "BBBUSDT", "orderId": 2, "clientOrderId": "web_abc"},
     ]
     adapter = BinanceFuturesAdapter(client, mode="dry_run")
-    assert adapter.get_open_order_symbols() == {"AAAUSDT", "BBBUSDT"}
-    client.futures_get_open_orders.assert_called_once()
+    rows = adapter.get_open_orders()
+    assert [r["clientOrderId"] for r in rows] == ["xs-1-AAAUSDT", "web_abc"]
+    client.futures_get_open_orders.assert_called_once_with()
 
 
-def test_cancel_open_orders_calls_per_symbol() -> None:
+def test_the_adapter_can_no_longer_cancel_symbol_wide() -> None:
+    """#1023 removed `cancel_open_orders`: every cancel now names one order.
+
+    A symbol-wide cancel also killed the operator's own resting orders, which
+    is what forced the card-place XS veto. Pinned structurally so it cannot
+    quietly come back as a convenience.
+    """
+    assert not hasattr(BinanceFuturesAdapter, "cancel_open_orders")
+    assert not hasattr(BinanceFuturesAdapter, "get_open_order_symbols")
+
+
+# ----- #1023: our own client order ids -----
+
+
+def test_make_client_order_id_joins_parts_and_enforces_binances_rule() -> None:
+    assert make_client_order_id("ex", 1_760_000_000_000, "L", "stop") == (
+        "ex-1760000000000-L-stop"
+    )
+    with pytest.raises(ValueError, match="36-char"):
+        make_client_order_id("xs", "x" * 40)
+    with pytest.raises(ValueError, match="36-char"):
+        make_client_order_id("cd", "has space")
+
+
+def test_submit_sends_new_client_order_id_on_the_classic_route() -> None:
     client = _live_client()
-    adapter = BinanceFuturesAdapter(client, mode="live")
-    adapter.cancel_open_orders("AAAUSDT")
-    client.futures_cancel_all_open_orders.assert_called_once_with(symbol="AAAUSDT")
+    intent = OrderIntent(
+        "AAAUSDT", "BUY", 2.0, False, 200.0, "card", "LIMIT", client_order_id="cd-1"
+    )
+    BinanceFuturesAdapter(client, mode="live").submit(intent, price=99.98)
+    kwargs = client.futures_create_order.call_args.kwargs
+    assert kwargs["newClientOrderId"] == "cd-1"
+    assert "clientAlgoId" not in kwargs
 
 
-def test_cancel_open_orders_dry_run_is_a_noop() -> None:
+def test_submit_sends_client_algo_id_on_the_algo_route() -> None:
     client = MagicMock()
+    client.futures_create_order.return_value = {"algoId": 5}
+    intent = OrderIntent(
+        "AAAUSDT", "SELL", 0.0, True, 0.0, "exit_stop", "STOP_MARKET",
+        stop_price=95.0, close_position=True, client_order_id="ex-1-L-stop",
+    )  # fmt: skip
+    BinanceFuturesAdapter(client, mode="live").submit(intent)
+    kwargs = client.futures_create_order.call_args.kwargs
+    assert kwargs["clientAlgoId"] == "ex-1-L-stop"
+    assert "newClientOrderId" not in kwargs
+
+
+def test_the_installed_library_keeps_our_id_only_under_each_routes_own_key() -> None:
+    """Why the adapter switches keys, measured on python-binance itself.
+
+    The library DROPS `newClientOrderId` on the algo route and invents a
+    random `clientAlgoId`, so a stop sent under the classic key loses the id
+    the exit manager wrote into its intent row. This drives the real
+    `Client.futures_create_order` with only the HTTP layer stubbed; a library
+    upgrade that changes either route's handling fails here first.
+    """
+    from binance.client import Client
+
+    sent: list[tuple[str, dict[str, Any]]] = []
+
+    def _capture(
+        method: str, path: str, signed: bool, data: dict[str, Any]
+    ) -> dict[str, Any]:
+        sent.append((path, dict(data)))
+        return {"algoId": 7} if path == "algoOrder" else {"orderId": 8}
+
+    client = Client("key", "secret", ping=False)
+    client._request_futures_api = _capture
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    adapter.submit(
+        OrderIntent(
+            "AAAUSDT",
+            "SELL",
+            0.0,
+            True,
+            0.0,
+            "exit_stop",
+            "STOP_MARKET",
+            stop_price=95.0,
+            close_position=True,
+            client_order_id="ex-1-L-stop",
+        )  # fmt: skip
+    )
+    adapter.submit(
+        OrderIntent(
+            "AAAUSDT",
+            "SELL",
+            1.0,
+            True,
+            0.0,
+            "exit_tp1",
+            "LIMIT",
+            client_order_id="ex-1-L-tp1",
+        ),  # fmt: skip
+        price=110.0,
+    )
+    (algo_path, algo), (classic_path, classic) = sent
+    assert (algo_path, algo["clientAlgoId"]) == ("algoOrder", "ex-1-L-stop")
+    assert (classic_path, classic["newClientOrderId"]) == ("order", "ex-1-L-tp1")
+
+    # The control: the classic key on a conditional is silently replaced.
+    sent.clear()
+    client.futures_create_order(
+        symbol="AAAUSDT", side="SELL", type="STOP_MARKET", stopPrice=95.0,
+        newClientOrderId="ex-1-L-stop",
+    )  # fmt: skip
+    assert sent[0][1]["clientAlgoId"] != "ex-1-L-stop"
+    assert "newClientOrderId" not in sent[0][1]
+
+
+def test_submit_without_an_id_sends_neither_key() -> None:
+    """Callers that send no id keep the wire shape they had before #1023."""
+    client = _live_client()
+    intent = OrderIntent("AAAUSDT", "BUY", 2.0, False, 200.0, "open", "LIMIT")
+    BinanceFuturesAdapter(client, mode="live").submit(intent, price=99.98)
+    kwargs = client.futures_create_order.call_args.kwargs
+    assert "newClientOrderId" not in kwargs and "clientAlgoId" not in kwargs
+
+
+def test_submit_refuses_a_malformed_id_before_any_request() -> None:
+    client = _live_client()
+    intent = OrderIntent(
+        "AAAUSDT", "BUY", 2.0, False, 200.0, "card", "LIMIT", client_order_id="bad id"
+    )
+    with pytest.raises(ValueError, match="client order id"):
+        BinanceFuturesAdapter(client, mode="live").submit(intent, price=99.98)
+    client.futures_create_order.assert_not_called()
+
+
+def test_find_order_queries_each_route_by_its_own_client_id_key() -> None:
+    client = MagicMock()
+    client.futures_get_order.return_value = {"orderId": 4, "status": "NEW"}
     adapter = BinanceFuturesAdapter(client, mode="dry_run")
-    adapter.cancel_open_orders("AAAUSDT")
-    client.futures_cancel_all_open_orders.assert_not_called()
+    assert adapter.find_order("A", "cd-1", conditional=False) == {
+        "orderId": 4,
+        "status": "NEW",
+    }
+    assert client.futures_get_order.call_args.kwargs == {
+        "symbol": "A",
+        "origClientOrderId": "cd-1",
+    }
+    client.futures_get_order.return_value = {"algoId": 9, "algoStatus": "NEW"}
+    found = adapter.find_order("A", "ex-1-L-stop", conditional=True)
+    assert found is not None and found["algoId"] == 9
+    assert client.futures_get_order.call_args.kwargs == {
+        "symbol": "A",
+        "clientAlgoId": "ex-1-L-stop",
+    }
+
+
+def test_find_order_reads_2013_as_absent_and_raises_on_anything_else(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import trade.binance_futures as mod
+
+    monkeypatch.setattr(mod, "APIError", _APIError, raising=False)
+    client = MagicMock()
+    client.futures_get_order.side_effect = _APIError(ORDER_NOT_FOUND)
+    assert find_order_by_client_id(client, "A", "cd-1", conditional=False) is None
+    client.futures_get_order.side_effect = _APIError(-1021)
+    with pytest.raises(_APIError):
+        find_order_by_client_id(client, "A", "cd-1", conditional=False)
+
+
+def test_find_order_body_with_no_id_is_unconfirmed_not_found() -> None:
+    """A 2xx body naming no order proves nothing, so it never reads as found."""
+    client = MagicMock()
+    client.futures_get_order.return_value = {"code": -1, "msg": "?"}
+    with pytest.raises(UnconfirmedOrderError):
+        find_order_by_client_id(client, "A", "ex-1-L-stop", conditional=True)
 
 
 def test_submit_limit_hedge_mode_sends_position_side_and_omits_reduce_only() -> None:

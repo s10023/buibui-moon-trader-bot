@@ -10,7 +10,7 @@ isolates per-order submission failures. Reads the analytics DB read-only via
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -21,6 +21,7 @@ from analytics.forecast.config import ForecastConfig
 from analytics.xsmom.live import TargetBook
 from analytics.xsmom.replay import replay_targets
 from portfolio.sizing import round_to_tick
+from trade.binance_futures import make_client_order_id
 from trade.overlay import AccountState, OverlayVerdict, RiskLimits, evaluate_overlay
 from trade.routing import ExchangeFilters, OrderIntent, OrderPlan, build_order_plan
 
@@ -34,11 +35,29 @@ class _Adapter(Protocol):
     def get_filters(self, symbols: list[str]) -> dict[str, ExchangeFilters]: ...
     def ensure_account_config(self, symbols: list[str], *, leverage: int) -> None: ...
     def get_book_tops(self, symbols: list[str]) -> dict[str, tuple[float, float]]: ...
-    def get_open_order_symbols(self) -> set[str]: ...
-    def cancel_open_orders(self, symbol: str) -> None: ...
+    def get_open_orders(self) -> list[dict[str, Any]]: ...
+    def cancel_order(
+        self, symbol: str, *, order_id: int | None = None, algo_id: int | None = None
+    ) -> None: ...
     def submit(
         self, intent: OrderIntent, price: float | None = None
     ) -> dict[str, Any]: ...
+
+
+# Every order this executor sends carries `xs-<run>-<symbol>` as its client
+# order id (#1023). The prefix is what lets a run cancel its OWN stale orders
+# and nothing else; python-binance's own ids start `x-`, and Binance's app and
+# web orders `ios_` / `android_` / `web_`, so none of them can match.
+CLIENT_ID_PREFIX = "xs"
+
+
+def xs_client_order_id(run_s: int, symbol: str) -> str:
+    """One id per symbol per run: `build_order_plan` emits at most one intent per symbol."""
+    return make_client_order_id(CLIENT_ID_PREFIX, run_s, symbol)
+
+
+def is_xs_order(row: dict[str, Any]) -> bool:
+    return str(row.get("clientOrderId") or "").startswith(f"{CLIENT_ID_PREFIX}-")
 
 
 @dataclass(frozen=True)
@@ -103,23 +122,21 @@ def run_once(
     # Cancel stale resting orders BEFORE the planning read. A resting order is
     # not a position, so yesterday's unfilled order would otherwise sit on the
     # book while today's plan submits another one — an overshoot in which both
-    # orders are individually correct. Scoped to symbols this executor manages
-    # (symbols | positions): the operator's own orders on other symbols must
-    # survive. Any open-order symbol still in the current universe is managed
-    # with no lookup; a position read is only needed to resolve a symbol that
-    # has DROPPED OUT of the universe (still held vs. a stray unmanaged order).
+    # orders are individually correct. Scoped by client order id (#1023): only
+    # orders this executor sent (the `xs-` prefix) are cancelled, each by its
+    # own orderId, on whatever symbol they rest — so the operator's own orders
+    # survive even on a symbol the book trades. This replaced a symbol-wide
+    # cancel over the managed set. ⚠ It does NOT make a shared account safe:
+    # `build_order_plan` still closes every position that is not in the book.
     # Runs BEFORE `evaluate_overlay` deliberately: a kill-switched or
-    # drawdown-halted run still clears its own managed resting orders rather
-    # than leaving them able to fill while the book is halted.
-    open_syms = adapter.get_open_order_symbols()
-    if open_syms:
-        universe = set(symbols)
-        to_cancel = open_syms & universe
-        dropped = open_syms - universe
-        if dropped:
-            to_cancel |= dropped & set(adapter.get_positions())
-        for sym in sorted(to_cancel):
-            adapter.cancel_open_orders(sym)
+    # drawdown-halted run still clears its own resting orders rather than
+    # leaving them able to fill while the book is halted.
+    stale = sorted(
+        (r for r in adapter.get_open_orders() if is_xs_order(r)),
+        key=lambda r: (str(r["symbol"]), int(r["orderId"])),
+    )
+    for row in stale:
+        adapter.cancel_order(str(row["symbol"]), order_id=int(row["orderId"]))
 
     positions = adapter.get_positions()
     all_symbols = sorted(set(symbols) | set(positions))
@@ -159,11 +176,16 @@ def run_once(
     submitted: list[OrderIntent] = []
     failed: list[tuple[OrderIntent, str]] = []
 
+    run_s = int(now.timestamp())
     if verdict.allowed:
         adapter.ensure_account_config(symbols, leverage=exchange_leverage)
-        for intent in plan.intents:
+        for planned in plan.intents:
+            intent = planned
+            price: float | None = None
             try:
-                price: float | None = None
+                intent = replace(
+                    planned, client_order_id=xs_client_order_id(run_s, planned.symbol)
+                )
                 if intent.order_type == "LIMIT":
                     top = book_tops.get(intent.symbol)
                     if top is None:
@@ -206,6 +228,9 @@ def run_once(
         # diagnosable after the fact (it was not, on 2026-08-06).
         "capital_override": capital_override,
         "submitted": len(submitted),
+        # The ids are the join key for a per-order fill or maker-share read.
+        "client_order_ids": [i.client_order_id for i in submitted],
+        "cancelled_stale": len(stale),
         "skipped": len(plan.skipped),
         "failed": len(failed),
         "aborts": verdict.aborts,

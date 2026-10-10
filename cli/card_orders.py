@@ -24,7 +24,7 @@ from card.orders import (
     refresh_orders,
     scan_candidates,
 )
-from trade.binance_futures import BinanceFuturesAdapter
+from trade.binance_futures import NEVER_PLACED_AFTER_MISSES, BinanceFuturesAdapter
 
 
 def _universe_symbols(path: Path = Path("config/universe.toml")) -> set[str]:
@@ -137,20 +137,54 @@ def run_orders(args: argparse.Namespace) -> None:
         client = create_client()
         rows = read_jsonl(ledger)
         symbols = sorted(
-            {str(r["symbol"]) for r in rows if r.get("kind") == "placement"}
+            {str(r["symbol"]) for r in rows if r.get("kind") in ("placement", "intent")}
         )
         adapter = BinanceFuturesAdapter(client, mode="dry_run")
         written = refresh_orders(
             client, ledger, marks=adapter.get_marks(symbols), now_ms=_now_ms()
         )
-        print(f"{len(written)} order(s) reached a terminal state")
+        for w in written:
+            if w["kind"] == "resolved":
+                print(
+                    f"{w['symbol']} {w['client_order_id']}: unknown submit resolved "
+                    f"- {w['status']} (order {w['order_id']})"
+                )
+            elif w["kind"] == "lookup_miss":
+                print(
+                    f"{w['symbol']} {w['client_order_id']}: not found "
+                    f"({w['misses']} of {NEVER_PLACED_AFTER_MISSES} lookups)"
+                )
+        n_terminal = sum(1 for w in written if w["kind"] == "terminal")
+        print(f"{n_terminal} order(s) reached a terminal state")
     rows = read_jsonl(ledger)
     terminal = {r["order_id"]: r for r in rows if r.get("kind") == "terminal"}
+    resolved = {r["client_order_id"]: r for r in rows if r.get("kind") == "resolved"}
+    with_placement = {
+        r.get("client_order_id") for r in rows if r.get("kind") == "placement"
+    }
+    refused = {r.get("client_order_id") for r in rows if r.get("kind") == "refused"}
     for p in rows:
-        if p.get("kind") != "placement":
+        kind = p.get("kind")
+        cid = p.get("client_order_id")
+        if kind == "intent":
+            # Listed only when the run died before its placement row.
+            if cid in with_placement or cid in refused:
+                continue
+        elif kind != "placement":
             continue
-        t = terminal.get(p.get("order_id"))
-        state = p.get("terminal_reason") or (t["reason"] if t else "working")
+        res = resolved.get(cid) if cid is not None else None
+        order_id = p.get("order_id") or (res or {}).get("order_id")
+        t = terminal.get(order_id) if order_id else None
+        if res is not None and res["status"] == "NEVER_PLACED":
+            state = "never_placed"
+        elif t is not None:
+            state = t["reason"]
+        elif res is not None:
+            state = "working"
+        elif kind == "intent" or p.get("terminal_reason") == "submit_unknown":
+            state = "UNKNOWN - --refresh looks it up by client order id"
+        else:
+            state = p.get("terminal_reason") or "working"
         print(
             f"{p['symbol']:<10} {p.get('direction', '?'):<5} "
             f"{p['limit_price']:>12} x {p['qty']:<8} {state}"

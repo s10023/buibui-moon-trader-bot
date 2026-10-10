@@ -13,7 +13,7 @@ from analytics.store.market_data import upsert_ohlcv
 from analytics.store.schema import init_schema
 from trade.overlay import RiskLimits
 from trade.routing import OrderIntent
-from trade.xsmom_executor import load_state, run_once, save_state
+from trade.xsmom_executor import is_xs_order, load_state, run_once, save_state
 
 _DAY = 86_400_000
 
@@ -57,8 +57,8 @@ class _FakeAdapter:
         self.submitted: list[OrderIntent] = []
         self.config_calls = 0
         self.fail_symbol: str | None = None
-        self.open_order_symbols: set[str] = set()
-        self.cancelled: list[str] = []
+        self.open_orders: list[dict[str, Any]] = []
+        self.cancelled: list[tuple[str, int]] = []
         self.book_tops: dict[str, tuple[float, float]] = {}
         self.submitted_prices: list[float | None] = []
         self.cancel_raises = False
@@ -80,13 +80,16 @@ class _FakeAdapter:
     def ensure_account_config(self, symbols: list[str], *, leverage: int) -> None:
         self.config_calls += 1
 
-    def get_open_order_symbols(self) -> set[str]:
-        return set(self.open_order_symbols)
+    def get_open_orders(self) -> list[dict[str, Any]]:
+        return [dict(r) for r in self.open_orders]
 
-    def cancel_open_orders(self, symbol: str) -> None:
+    def cancel_order(
+        self, symbol: str, *, order_id: int | None = None, algo_id: int | None = None
+    ) -> None:
         if self.cancel_raises:
             raise RuntimeError("cancel failed")
-        self.cancelled.append(symbol)
+        assert order_id is not None and algo_id is None  # XS never rests a stop
+        self.cancelled.append((symbol, order_id))
         # The resting order being cancelled may have partially filled moments
         # before the cancel landed. Mutating positions here lets a test prove
         # the PLANNING read is built from post-cancel state rather than a
@@ -107,6 +110,10 @@ class _FakeAdapter:
         self.submitted.append(intent)
         self.submitted_prices.append(price)
         return {"ok": True}
+
+
+def _order(symbol: str, order_id: int, client_id: str) -> dict[str, Any]:
+    return {"symbol": symbol, "orderId": order_id, "clientOrderId": client_id}
 
 
 def _limits(**kw: Any) -> RiskLimits:
@@ -519,18 +526,29 @@ def test_missing_mark_forces_steady_state_cap(tmp_path: Path) -> None:
     )
 
 
+def _run(conn: Any, adapter: _FakeAdapter, syms: list[str], tmp_path: Path) -> Any:
+    return run_once(
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        _limits(),
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
+        state_path=tmp_path / "s.json",
+        now=pd.Timestamp("2022-02-05", tz="UTC"),
+    )
+
+
 def test_cancels_stale_orders_before_reading_positions(tmp_path: Path) -> None:
     """A partially-filled resting order is still moving the position while it
     sits there, so the plan must be built from the POST-cancel position.
 
     Behavioural, not string-order, on purpose: an ordering probe can't tell
-    "cancel precedes the *planning* read" apart from
-    "cancel precedes *every* read" — and the executor deliberately contains a
-    pre-cancel read for symbols that dropped out of the universe (see
-    `test_cancel_reaches_a_dropped_but_still_held_symbol`), so that stronger
-    claim is false. `_FakeAdapter.cancel_open_orders` simulates the resting
-    order filling by +2.0 the instant it's cancelled; if planning read a
-    stale pre-cancel snapshot, `res.positions["AAAUSDT"]` would come back 0.0
+    "cancel precedes the *planning* read" apart from "cancel precedes
+    *every* read". `_FakeAdapter.cancel_order` simulates the resting order
+    filling by +2.0 the instant it's cancelled; if planning read a stale
+    pre-cancel snapshot, `res.positions["AAAUSDT"]` would come back 0.0
     instead of 2.0.
     """
     conn = duckdb.connect(":memory:")
@@ -539,53 +557,48 @@ def test_cancels_stale_orders_before_reading_positions(tmp_path: Path) -> None:
     adapter = _FakeAdapter(
         equity=10_000.0, positions={}, marks=dict.fromkeys(syms, 100.0)
     )
-    adapter.open_order_symbols = {"AAAUSDT"}
+    adapter.open_orders = [_order("AAAUSDT", 7, "xs-1643932800-AAAUSDT")]
     adapter.book_tops = dict.fromkeys(syms, (99.98, 100.02))
-    res = run_once(
-        conn,
-        adapter,
-        ForecastConfig(),
-        syms,
-        _limits(),
-        no_trade_band_frac=0.0,
-        exchange_leverage=5,
-        state_path=tmp_path / "s.json",
-        now=pd.Timestamp("2022-02-05", tz="UTC"),
-    )
-    assert adapter.cancelled == ["AAAUSDT"]  # the cancel actually ran
+    res = _run(conn, adapter, syms, tmp_path)
+    assert adapter.cancelled == [("AAAUSDT", 7)]  # the cancel actually ran
     assert res.positions["AAAUSDT"] == 2.0
 
 
-def test_cancel_is_scoped_to_managed_symbols(tmp_path: Path) -> None:
-    """ZZZUSDT is neither in the book nor held, so an operator's own order on it
-    must survive. The router already closes non-book POSITIONS — which is why a
-    dedicated sub-account is required — but do not widen that to orders."""
+def test_cancel_touches_only_orders_carrying_our_prefix(tmp_path: Path) -> None:
+    """#1023: the operator's own orders survive EVEN ON a symbol the book trades.
+
+    The symbol-wide cancel this replaced killed every order on AAAUSDT. Each
+    stale `xs-` order is now cancelled by its own orderId, and nothing else is
+    touched: a web order, python-binance's default `x-` id, a card entry and
+    an exit-manager leg on the same symbols all stay. That does NOT make a
+    shared account safe -- `build_order_plan` still closes every position
+    that is not in the book (`test_run_once_closes_off_universe_position`).
+    """
     conn = duckdb.connect(":memory:")
     init_schema(conn)
     syms = _seed(conn)
     adapter = _FakeAdapter(equity=10_000.0, positions={}, marks={})
-    adapter.open_order_symbols = {"AAAUSDT", "ZZZUSDT"}
+    adapter.open_orders = [
+        _order("AAAUSDT", 1, "web_operator"),
+        _order("AAAUSDT", 2, "xs-1643932800-AAAUSDT"),
+        _order("AAAUSDT", 3, "x-Cb7ytekJ46200dcabac65e5e2fe996"),
+        _order("BBBUSDT", 4, "cd-1643932800000"),
+        _order("BBBUSDT", 5, "ex-1643932800000-L-tp1"),
+        _order("ZZZUSDT", 6, "ios_operator"),
+    ]
     adapter.book_tops = dict.fromkeys(syms, (99.98, 100.02))
-    run_once(
-        conn,
-        adapter,
-        ForecastConfig(),
-        syms,
-        _limits(),
-        no_trade_band_frac=0.0,
-        exchange_leverage=5,
-        state_path=tmp_path / "s.json",
-        now=pd.Timestamp("2022-02-05", tz="UTC"),
-    )
-    assert adapter.cancelled == ["AAAUSDT"]
+    _run(conn, adapter, syms, tmp_path)
+    assert adapter.cancelled == [("AAAUSDT", 2)]
 
 
-def test_cancel_reaches_a_dropped_but_still_held_symbol(tmp_path: Path) -> None:
-    """ZZZUSDT left the universe but is still HELD, so its stale order must
-    still be cancelled — the higher-stakes direction of the managed-set
-    boundary. The router already sends a MARKET close for a held off-universe
-    position; an uncancelled resting order sitting beside that close is
-    exactly the overshoot this task exists to prevent, on a closing order.
+def test_cancel_reaches_our_order_on_a_symbol_that_left_the_universe(
+    tmp_path: Path,
+) -> None:
+    """Held or not: an `xs-` order is ours, so a dropped symbol no longer hides it.
+
+    The managed-set scoping this replaced needed a position read to tell a
+    dropped-but-held symbol from a stray order; the client id answers that
+    directly, and also clears an unheld leftover the old scope missed.
     """
     conn = duckdb.connect(":memory:")
     init_schema(conn)
@@ -593,19 +606,31 @@ def test_cancel_reaches_a_dropped_but_still_held_symbol(tmp_path: Path) -> None:
     adapter = _FakeAdapter(
         equity=10_000.0, positions={"ZZZUSDT": 1.0}, marks={"ZZZUSDT": 100.0}
     )
-    adapter.open_order_symbols = {"ZZZUSDT"}
-    run_once(
-        conn,
-        adapter,
-        ForecastConfig(),
-        syms,
-        _limits(),
-        no_trade_band_frac=0.0,
-        exchange_leverage=5,
-        state_path=tmp_path / "s.json",
-        now=pd.Timestamp("2022-02-05", tz="UTC"),
-    )
-    assert adapter.cancelled == ["ZZZUSDT"]
+    adapter.open_orders = [
+        _order("ZZZUSDT", 8, "xs-1643846400-ZZZUSDT"),
+        _order("YYYUSDT", 9, "xs-1643846400-YYYUSDT"),  # dropped AND flat
+    ]
+    _run(conn, adapter, syms, tmp_path)
+    assert adapter.cancelled == [("YYYUSDT", 9), ("ZZZUSDT", 8)]
+
+
+def test_every_order_is_sent_under_its_run_and_symbol_id(tmp_path: Path) -> None:
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    syms = _seed(conn)
+    adapter = _FakeAdapter(equity=10_000.0, positions={}, marks={})
+    adapter.book_tops = dict.fromkeys(syms, (99.98, 100.02))
+    adapter.open_orders = [_order("AAAUSDT", 1, "xs-1-AAAUSDT")]
+    res = _run(conn, adapter, syms, tmp_path)
+    run_s = int(pd.Timestamp("2022-02-05", tz="UTC").timestamp())
+    assert res.submitted
+    assert [i.client_order_id for i in adapter.submitted] == [
+        f"xs-{run_s}-{i.symbol}" for i in adapter.submitted
+    ]
+    assert all(is_xs_order({"clientOrderId": i.client_order_id}) for i in res.submitted)
+    last = load_state(tmp_path / "s.json")["last_run"]
+    assert last["client_order_ids"] == [i.client_order_id for i in res.submitted]
+    assert last["cancelled_stale"] == 1
 
 
 def test_limit_rests_at_the_touch_rounded_passively(tmp_path: Path) -> None:
@@ -672,7 +697,7 @@ def test_cancel_failure_aborts_before_submitting(tmp_path: Path) -> None:
     init_schema(conn)
     syms = _seed(conn)
     adapter = _FakeAdapter(equity=10_000.0, positions={}, marks={})
-    adapter.open_order_symbols = {"AAAUSDT"}
+    adapter.open_orders = [_order("AAAUSDT", 1, "xs-1-AAAUSDT")]
     adapter.cancel_raises = True
     with pytest.raises(RuntimeError, match="cancel failed"):
         run_once(
