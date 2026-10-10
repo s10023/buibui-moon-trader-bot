@@ -9,6 +9,10 @@ environment's setup script can change the plugin row at any time (#1016).
 `.claude/hooks/open-issues.py` prints a banner pointing here on every session whose environment
 sets `CLAUDE_CODE_REMOTE=true`, which is the cloud harness and nothing else.
 
+**A claude.ai Routine fires a cloud session, so this table binds every Routine too.** A cadence
+that reads `analytics.db`, `docs/plans/` or the keys (`daily_check.py`, `/decay-review`,
+`/db-update`) stays on the laptop's timers; which of the rest move is #1019.
+
 ## What is and is not there
 
 | | Laptop | Cloud session |
