@@ -172,14 +172,38 @@ class TestSyncBinanceTime:
         mock_client = MagicMock()
         mock_client.get_server_time.return_value = {"serverTime": 1700000001000}
         sync_binance_time(mock_client)
-        assert mock_client.TIME_OFFSET == 1000
+        assert mock_client.timestamp_offset == 1000
 
     @patch("utils.binance_client.time.time", return_value=1700000001.0)
     def test_negative_offset(self, _mock_time: Any) -> None:
         mock_client = MagicMock()
         mock_client.get_server_time.return_value = {"serverTime": 1700000000000}
         sync_binance_time(mock_client)
-        assert mock_client.TIME_OFFSET == -1000
+        assert mock_client.timestamp_offset == -1000
+
+    def test_offset_reaches_a_signed_request(self) -> None:
+        """The offset must land in the timestamp python-binance signs.
+
+        A MagicMock accepts any attribute, so the two tests above cannot tell
+        an attribute the library reads from one it ignores -- which is how
+        `TIME_OFFSET` passed them for months while doing nothing (#1021). This
+        one builds a real client (no ping, no network) and reads the signed
+        request back.
+        """
+        from binance.client import Client
+
+        client = Client("key", "secret", ping=False)
+        with (
+            patch.object(client, "get_server_time", return_value={"serverTime": 0}),
+            patch("utils.binance_client.time.time", return_value=3600.0),
+        ):
+            sync_binance_time(client)  # local clock one hour AHEAD of the server
+        assert client.timestamp_offset == -3_600_000
+
+        with patch("binance.base_client.time.time", return_value=3600.0):
+            kwargs = client._get_request_kwargs("post", True, data={"a": 1})
+        stamped = dict(kwargs["data"])["timestamp"]
+        assert int(stamped) == 0  # 3600s local - 3600s offset == server time
 
     def test_raises_runtime_error_on_api_failure(self) -> None:
         mock_client = MagicMock()
