@@ -14,7 +14,13 @@ _DEFAULT_COINS_PATH = Path(__file__).parent.parent / "config" / "coins.json"
 
 
 def sync_binance_time(client: Client) -> None:
-    """Sync client time offset with Binance server."""
+    """Sync client time offset with Binance server.
+
+    The attribute is `timestamp_offset`: python-binance adds it to the
+    `timestamp` of every signed request. Until #1021 this set `TIME_OFFSET`,
+    which the library never reads, so the sync was a no-op and only the
+    default 10s `recvWindow` stood between a drifting clock and -1021.
+    """
     try:
         server_time = client.get_server_time()["serverTime"]
     except Exception as exc:
@@ -22,7 +28,7 @@ def sync_binance_time(client: Client) -> None:
             "Failed to sync time with Binance server — check connectivity"
         ) from exc
     local_time = int(time.time() * 1000)
-    client.TIME_OFFSET = server_time - local_time
+    client.timestamp_offset = server_time - local_time
 
 
 def create_client() -> Client:

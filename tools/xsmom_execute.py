@@ -295,14 +295,16 @@ def format_result(res: ExecutionResult) -> str:
 
 
 def _build_client(mode: str):  # type: ignore[no-untyped-def]
-    from utils.binance_client import create_client
+    from utils.binance_client import create_client, sync_binance_time
 
     if mode == "testnet":
         from binance.client import Client
 
         key = os.environ["BINANCE_TESTNET_API_KEY"]
         secret = os.environ["BINANCE_TESTNET_API_SECRET"]
-        return Client(key, secret, testnet=True)
+        client = Client(key, secret, testnet=True)
+        sync_binance_time(client)  # create_client() does this for mainnet (#1021)
+        return client
     return create_client()  # mainnet (reads only in dry_run)
 
 

@@ -297,3 +297,38 @@ def test_short_open_is_limit_and_short_trim_is_market() -> None:
     assert by_symbol["BBBUSDT"].side == "BUY"
     assert by_symbol["BBBUSDT"].reduce_only is True
     assert by_symbol["BBBUSDT"].order_type == "MARKET"
+
+
+def test_order_qty_carries_no_float_noise_onto_the_wire() -> None:
+    # 0.08175 * 10_000 / 1_000 = 0.8175 units, floored to step 0.001 = 0.817.
+    # `round_down_to_step` returns 817 * 0.001 == 0.8170000000000001, and
+    # python-binance sends `str(qty)`, which Binance rejects -1111 (#1022).
+    book = _book([_pos("AAAUSDT", 0.08175)])
+    plan = build_order_plan(
+        book,
+        current_positions={},
+        marks={"AAAUSDT": 1000.0},
+        filters={"AAAUSDT": _filters("AAAUSDT")},
+        no_trade_band_frac=0.0,
+        capital=10_000.0,
+    )
+    assert len(plan.intents) == 1
+    assert str(plan.intents[0].qty) == "0.817"
+
+
+def test_trim_qty_carries_no_float_noise_either() -> None:
+    # Same noise on a reduce-only trim: 1.0 held, 0.991 targeted -> sell 0.009,
+    # which `round_down_to_step` returns as 0.009000000000000001 (#1022).
+    book = _book([_pos("AAAUSDT", 0.0991)])
+    plan = build_order_plan(
+        book,
+        current_positions={"AAAUSDT": 1.0},
+        marks={"AAAUSDT": 1000.0},
+        filters={"AAAUSDT": _filters("AAAUSDT")},
+        no_trade_band_frac=0.0,
+        capital=10_000.0,
+    )
+    assert len(plan.intents) == 1
+    o = plan.intents[0]
+    assert o.reduce_only and o.side == "SELL"
+    assert str(o.qty) == "0.009"

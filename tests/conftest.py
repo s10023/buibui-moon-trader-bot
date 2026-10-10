@@ -83,7 +83,7 @@ def _create_mock_client() -> MagicMock:
     """Create a mock Binance client with common stubs."""
     client = MagicMock()
     client.get_server_time.return_value = {"serverTime": 1700000000000}
-    client.TIME_OFFSET = 0
+    client.timestamp_offset = 0
     return client
 
 

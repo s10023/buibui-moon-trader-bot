@@ -13,7 +13,7 @@ import math
 from dataclasses import dataclass
 
 from analytics.xsmom.live import TargetBook
-from portfolio.sizing import round_down_to_step
+from portfolio.sizing import _tick_decimals, round_down_to_step
 
 
 @dataclass(frozen=True)
@@ -105,6 +105,13 @@ def build_order_plan(
             0.0 if is_close else _signed_target_qty(notional, mark, filt.qty_step)
         )
         delta_qty = round_down_to_step(target_qty - current, filt.qty_step)
+        # `round_down_to_step` returns `k * step`, which carries float noise
+        # (0.8170000000000001 at step 0.001). python-binance sends the bare
+        # `str()`, so Binance rejects that -1111. Quantise to the step's own
+        # decimals, as `card/orders.py` and `trade/exit_manager.py` do (#1022).
+        # A non-positive step means "unknown filter" and passes through.
+        if filt.qty_step > 0.0:
+            delta_qty = round(delta_qty, _tick_decimals(filt.qty_step))
         delta_qty = math.copysign(delta_qty, target_qty - current)
         delta_notional = delta_qty * mark
         side = "BUY" if delta_qty > 0 else "SELL"
