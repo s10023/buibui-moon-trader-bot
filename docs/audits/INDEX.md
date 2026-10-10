@@ -4,13 +4,14 @@
 `make docs-index-check` (and `tests/test_docs_index.py`) fails when this file
 drifts from the corpus.
 
-**63 audits.** A verdict line is shown only where one could be read
-out of a Verdict heading as prose — that is **46 of 63**.
+**64 audits.** A verdict line is shown only where one could be read
+out of a Verdict heading as prose — that is **47 of 64**.
 An em dash means the doc states its verdict in a table, a blockquote or the body,
 **not** that it lacks one; open the file. Nothing here is keyword-guessed.
 
 | Date | Audit | Verdict (as written) | File |
 | --- | --- | --- | --- |
+| 2026-10-10 | E850 — short after a breakout on rising open interest: fails the gate, and the short loses | E850 fails the gate, and it fails in the opposite direction from the thesis. Shorting a 20-day breakout made on unusually… | [2026-10-10-e850-oi-breakout-flush-result.md](2026-10-10-e850-oi-breakout-flush-result.md) |
 | 2026-10-09 | H13 — 15m opening-range breakout at the NYSE cash open: fails the gate, positive and small | H13 fails the gate under both same-bar tie-breaks, so the round-1 verdict is FAIL and the slot does not carry a candidate… | [2026-10-09-h13-us-open-orb-result.md](2026-10-09-h13-us-open-orb-result.md) |
 | 2026-10-09 | E841 — hedged violent-up continuation out of universe: killed at K1 | E841 is killed at K1 and does not run. On the holdout's book-day series (n 2,142, sd 0.906R), the DSR leg at N = 3 and the 0.005… | [2026-10-09-e841-violent-up-holdout-result.md](2026-10-09-e841-violent-up-holdout-result.md) |
 | 2026-10-09 | #985 — seven verdicts re-run through the one `backtest_trades` loader | Re-runs the seven verdicts #949 found resting on polluted `backtest_trades` rows, now that every reader goes through… | [2026-10-09-985-backtest-trades-loader-rerun.md](2026-10-09-985-backtest-trades-loader-rerun.md) |
