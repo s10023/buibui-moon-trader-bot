@@ -164,9 +164,13 @@ cannot carry live here:
   refactor · `/decay-review` weekly · `/db-update` after any detector, strategy or config
   change · `/recalibrate` after any `make buibui-backtest SAVE=1` · `/journal-trade` whenever
   a manual trade closes · `/ingest-charts` + `/ingest-feed` + `/card` daily (operator,
-  2026-08-17) · `/research-distil` after any book, repo or paper ingest · `/retro`
-  (mattpocock-skills) occasionally (operator, 2026-10-10; cadence and marker owed, #1017). The first three are marker-tracked in `docs/plans/task-marks/`, stamped by
-  whoever runs them; a missing marker reads as overdue on purpose, and nothing auto-runs.
+  2026-08-17) · `/research-distil` after any book, repo or paper ingest · `/sync-child`
+  weekly · `/retro` (mattpocock-skills) monthly (operator, 2026-10-10). `daily_check.py`
+  tracks `/sanity-check`, `/decay-review`, `/sync-child` (7d) and `/retro` (30d) through
+  markers in `docs/plans/task-marks/`, stamped by whoever runs them. Stamp `/retro` by hand
+  afterwards (`date -u +%FT%TZ > docs/plans/task-marks/retro`), because a plugin skill is
+  not ours to edit. A missing marker reads as overdue on purpose, `/db-update` has no
+  marker, and nothing auto-runs.
 - **`/research-distil` emits at most THREE hypotheses per run, and that cap is the point.**
   The intake's own header says the bottleneck is testing capacity, not idea capture, and
   trial count dominates n — so a skill that turns a book into forty hypotheses pushes every
