@@ -29,6 +29,13 @@ p1 and p2 print in full, each with its effort label (`effort:?` when unset); p3
 prints as a count. This output is paid in context on
 EVERY session, and the p3 tail is most of the list and least of the decisions.
 Untriaged issues print in full, since they need a decision rather than a skim.
+One line counts the issues still waiting on a triage ROLE, so a backlog of them is
+visible every session rather than found by a sweep.
+
+In a cloud session it first prints a banner naming what that container lacks and
+the filing rule that follows from it (`.claude/context/cloud-sessions.md`). The
+digest is the one thing every session reads before acting, which makes it the
+only place the rule reliably arrives in time.
 
 Stdlib only: CI runs its suite with a bare `python3` and no dependencies.
 """
@@ -41,6 +48,7 @@ import re
 import shutil
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +72,13 @@ FULL = {"p1", "p2"}
 # instead of as "no effort needed". Claude cannot change its own effort, so the
 # label is a suggestion the operator acts on with /effort.
 EFFORTS = ("effort:low", "effort:medium", "effort:high", "effort:max")
+
+# The five triage roles (docs/agents/triage-labels.md). `needs-triage` is an
+# explicit "not yet"; an issue carrying none of them has had no decision at all.
+ROLES = ("needs-triage", "needs-info", "ready-for-agent", "ready-for-human", "wontfix")
+
+# Set by the claude.ai cloud harness and by nothing else.
+CLOUD_ENV = "CLAUDE_CODE_REMOTE"
 
 _REMOTE_RE = re.compile(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?/?$")
 
@@ -125,6 +140,20 @@ def _prio(issue: dict[str, Any]) -> str | None:
     return next((p for p in PRIORITIES if p in names), None)
 
 
+def cloud_banner(env: Mapping[str, str]) -> list[str]:
+    """The cloud-session warning, or nothing on any other host."""
+    if env.get(CLOUD_ENV) != "true":
+        return []
+    return [
+        "## CLOUD SESSION -- not the laptop. Read .claude/context/cloud-sessions.md",
+        "   Absent here: analytics.db, docs/plans/ (handoff, ledgers), the memory",
+        "   tree, .env keys, and account plugins (mattpocock-skills included).",
+        "   File Issues as needs-triage, never ready-for-*. Work that needs the",
+        "   laptop carries a `## Local session prompt` block in its Issue body.",
+        "",
+    ]
+
+
 def render(
     issues: list[dict[str, Any]], slug: str | None, truncated: bool | None = None
 ) -> list[str]:
@@ -152,6 +181,13 @@ def render(
     n_p3 = sum(1 for i in issues if _prio(i) == "p3")
     if n_p3:
         out.append(f"   P3 x{n_p3} not listed -- `gh issue list --label p3`")
+    waiting = sum(1 for i in issues if "needs-triage" in _labels(i))
+    no_role = sum(1 for i in issues if not _labels(i) & set(ROLES))
+    if waiting or no_role:
+        out.append(
+            f"   Triage owed: {waiting} needs-triage + {no_role} with no role label"
+            " -- `/triage` (mattpocock-skills, local)"
+        )
     untriaged = [i for i in by_num if _prio(i) is None]
     if untriaged:
         out.append(
@@ -170,6 +206,8 @@ def main() -> int:
     # default. Degrade a character rather than taking the hook down.
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    for line in cloud_banner(os.environ):
+        print(line)
 
     if shutil.which("gh") is None:
         return _fail("the `gh` CLI is not on PATH")

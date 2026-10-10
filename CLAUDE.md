@@ -136,6 +136,13 @@ visibility flip, so redact account figures and screen the body with `make post-b
 `memory/project_todo_master.md` is now a pointer stub (rulings, gates, old-id → Issue map);
 do not re-add status to it.
 
+**A cloud session (claude.ai/code) is not the laptop.** It has no `analytics.db`, `docs/plans/`,
+memory tree, keys or account plugins (`mattpocock-skills` included), a shallow clone, and
+GitHub only through repo-scoped MCP tools. The digest prints a `CLOUD SESSION` banner when
+`CLAUDE_CODE_REMOTE=true`. **From there, file every Issue as `needs-triage`, never
+`ready-for-*`, and give work that needs the laptop a `## Local session prompt` block.** The
+full table and filing rule: `.claude/context/cloud-sessions.md`.
+
 The index is read into context every session, so its cost is paid on every conversation:
 
 - **Current State holds at most 6 bullets.** Adding a 7th means first rolling the oldest,
@@ -157,7 +164,8 @@ cannot carry live here:
   refactor · `/decay-review` weekly · `/db-update` after any detector, strategy or config
   change · `/recalibrate` after any `make buibui-backtest SAVE=1` · `/journal-trade` whenever
   a manual trade closes · `/ingest-charts` + `/ingest-feed` + `/card` daily (operator,
-  2026-08-17) · `/research-distil` after any book, repo or paper ingest. The first three are marker-tracked in `docs/plans/task-marks/`, stamped by
+  2026-08-17) · `/research-distil` after any book, repo or paper ingest · `/retro`
+  (mattpocock-skills) occasionally (operator, 2026-10-10; cadence and marker owed, #1017). The first three are marker-tracked in `docs/plans/task-marks/`, stamped by
   whoever runs them; a missing marker reads as overdue on purpose, and nothing auto-runs.
 - **`/research-distil` emits at most THREE hypotheses per run, and that cap is the point.**
   The intake's own header says the bottleneck is testing capacity, not idea capture, and

@@ -128,6 +128,48 @@ check(
     text,
 )
 check("detail hint carries -R <slug>", "-R owner1/repo1" in text)
+check(
+    "triage line counts needs-triage and role-less issues apart",
+    "Triage owed: 0 needs-triage + 5 with no role label" in text,
+    text,
+)
+roled = oi.render(
+    [
+        issue(1, "waiting", "p2", "needs-triage"),
+        issue(2, "decided", "p2", "ready-for-agent"),
+        issue(3, "bare", "p3"),
+    ],
+    None,
+)
+check(
+    "a role label clears an issue; needs-triage is counted as still owed",
+    "Triage owed: 1 needs-triage + 1 with no role label" in "\n".join(roled),
+    "\n".join(roled),
+)
+check(
+    "no triage line once every issue carries a decided role",
+    not any(
+        "Triage owed" in ln
+        for ln in oi.render([issue(4, "done", "p1", "ready-for-human")], None)
+    ),
+)
+
+# ---------------------------------------------------------------- cloud banner
+print("cloud banner:")
+banner = oi.cloud_banner({"CLAUDE_CODE_REMOTE": "true"})
+check("cloud session gets the banner", bool(banner) and "CLOUD SESSION" in banner[0])
+check(
+    "banner points at the doc and states the filing rule",
+    "cloud-sessions.md" in banner[0]
+    and any("needs-triage" in ln for ln in banner)
+    and any("Local session prompt" in ln for ln in banner),
+    "\n".join(banner),
+)
+check("no banner when the variable is unset", oi.cloud_banner({}) == [])
+check(
+    "no banner on any value but 'true'",
+    oi.cloud_banner({"CLAUDE_CODE_REMOTE": "false"}) == [],
+)
 row5 = next(ln for ln in lines if "#5 " in ln)
 check(
     "effort label shown first, kept out of the topic list",
