@@ -25,9 +25,11 @@ from tools.task_probe import (
     DEFAULT_TASK_PATH,
     SCHED_S_TASK_HAS_NOT_RUN,
     SCHED_S_TASK_RUNNING,
+    SCHED_S_TASK_TERMINATED,
     TASK_STATE_DISABLED,
     scheduler_last_completion,
     task_last_completion,
+    task_last_result,
     task_name_for_unit,
     task_state,
 )
@@ -332,3 +334,19 @@ def test_the_installer_and_the_probe_agree_on_the_task_path_constant() -> None:
     declared = re.search(r"\$TaskPath = '([^']+)'", text)
     assert declared, "no $TaskPath default found in the installer"
     assert declared.group(1) == DEFAULT_TASK_PATH
+
+
+def test_a_time_limit_kill_is_readable_as_its_own_result() -> None:
+    """#1031: the off-site task's 10-10 run read exactly this after a 3h-cap kill."""
+    out = "2026-10-10T13:26:12.0000000Z 267014"
+
+    assert task_last_result("\buibui\\", "x", reader=_reader(out)) == (
+        SCHED_S_TASK_TERMINATED
+    )
+    # ... and it still folds to a FAILURE for every caller that reads only the bool.
+    assert task_last_completion("\buibui\\", "x", reader=_reader(out))[1] is False
+
+
+@pytest.mark.parametrize("text", [None, "", "garbage", "2026-10-10T13:26:12Z"])
+def test_an_unreadable_result_is_none(text: str | None) -> None:
+    assert task_last_result("\buibui\\", "x", reader=_reader(text)) is None

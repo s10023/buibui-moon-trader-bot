@@ -377,6 +377,10 @@ finishes** and exits non-zero if it failed — so it is a real test, not fire-an
 ./deploy/backup-analytics.sh --weekly-if-due   # export only if the newest is >=7d old (what the timer uses)
 ```
 
+`.claude/worktrees/` is never copied (`LEDGER_DIR_EXCLUDES`, #1031). Each desktop-app worktree is a
+full checkout, and copying them doubled the daily snapshot past the off-site task's 3h limit. `--dry-run`
+prints the subtree as `excluded`. An exclude entry must be a direct child of a `LEDGER_DIRS` entry.
+
 | Env | Default | Purpose |
 | --- | --- | --- |
 | `BUIBUI_BACKUP_ROOT` | `~/backups/buibui` | Destination. Point this at a mounted drive to get the off-machine leg. |

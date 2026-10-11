@@ -53,6 +53,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.agents_config import AgentsConfig, ConfigError  # noqa: E402
 from tools.agents_config import load as load_agents_config  # noqa: E402
+from tools.repo_walk import md_files  # noqa: E402
 
 Runner = Callable[[Sequence[str]], str]
 
@@ -238,7 +239,7 @@ def surface_paths() -> list[Path]:
     """Every current-state doc surface that exists, self-referential ones dropped."""
     paths: list[Path] = []
     for root in SURFACE_ROOTS:
-        paths += sorted(Path(root).rglob("*.md"))
+        paths += md_files(Path(root))
     paths += [Path(p) for p in sanity_surfaces()]
     return [
         p

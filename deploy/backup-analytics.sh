@@ -177,6 +177,38 @@ LEDGER_DIRS=(
     ".claude"
 )
 
+# Paths inside a LEDGER_DIRS entry that are NOT single-copy and are never copied (#1031).
+# `.claude/worktrees/` is where desktop-app worktree sessions check out. Each is a full
+# checkout -- tracked files git already holds, plus branch work a push backs up -- and
+# copying them doubled the daily snapshot (371 MB -> 919 MB), so the off-site sync overran
+# its 3h task limit two nights running. Each entry must be a DIRECT child of a LEDGER_DIRS
+# entry: `_ledger_dir_entries` filters top-level entries only.
+LEDGER_DIR_EXCLUDES=(
+    ".claude/worktrees"
+)
+
+_is_excluded() {
+    local x
+    for x in "${LEDGER_DIR_EXCLUDES[@]}"; do
+        [ "$1" = "$x" ] && return 0
+    done
+    return 1
+}
+
+# The repo-relative top-level entries of one LEDGER_DIRS entry, exclusions dropped.
+# Both the dry-run report and the copy read this, so neither can disagree with the other.
+_ledger_dir_entries() {
+    local d="$1" e rel
+    # Three globs so dotfiles are included without nullglob; an unmatched glob stays
+    # literal and the existence test drops it.
+    for e in "$REPO/$d"/* "$REPO/$d"/.[!.]* "$REPO/$d"/..?*; do
+        [ -e "$e" ] || [ -L "$e" ] || continue
+        rel="$d/${e##*/}"
+        _is_excluded "$rel" && continue
+        printf '%s\n' "$rel"
+    done
+}
+
 # The venv interpreter is named directly rather than via `poetry run` -- one less
 # moving part on the minimal PATH a systemd user unit gets.
 PY="$REPO/.venv/bin/python"
@@ -518,7 +550,18 @@ if [ "$dry_run" -eq 1 ]; then
     done
     for d in "${LEDGER_DIRS[@]}"; do
         if [ -d "$REPO/$d" ]; then
-            log "  dir        $d ($(du -sh "$REPO/$d" | cut -f1), $(find "$REPO/$d" -type f | wc -l) files)"
+            entries=()
+            while IFS= read -r rel; do entries+=("$REPO/$rel"); done < <(_ledger_dir_entries "$d")
+            if [ "${#entries[@]}" -gt 0 ]; then
+                size="$(du -sch "${entries[@]}" | tail -n 1 | cut -f1)"
+                nfiles="$(find "${entries[@]}" -type f | wc -l)"
+            else
+                size=0; nfiles=0
+            fi
+            log "  dir        $d ($size, $nfiles files)"
+            for x in "${LEDGER_DIR_EXCLUDES[@]}"; do
+                case "$x" in "$d"/*) [ -e "$REPO/$x" ] && log "  excluded   $x" ;; esac
+            done
         else
             log "  dir        $d -- ABSENT, will be skipped"
         fi
@@ -685,11 +728,19 @@ done
 # `cp -R "$src/."` copies the CONTENTS into an existing dir, so a repeated run
 # cannot nest video-notes/video-notes. -p preserves mtimes, which the notes' own
 # date-based filenames do not encode (the ingest date is in the name, the edit
-# time is not).
+# time is not). Copied entry by entry so LEDGER_DIR_EXCLUDES can drop a subtree
+# without copying it first.
 for d in "${LEDGER_DIRS[@]}"; do
     if [ -d "$REPO/$d" ]; then
         mkdir -p "$daily_dir/$d"
-        cp -Rp "$REPO/$d/." "$daily_dir/$d/"
+        while IFS= read -r rel; do
+            if [ -d "$REPO/$rel" ] && [ ! -L "$REPO/$rel" ]; then
+                mkdir -p "$daily_dir/$rel"
+                cp -Rp "$REPO/$rel/." "$daily_dir/$rel/"
+            else
+                cp -Rp "$REPO/$rel" "$daily_dir/$rel"
+            fi
+        done < <(_ledger_dir_entries "$d")
     fi
 done
 
