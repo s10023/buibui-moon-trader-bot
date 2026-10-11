@@ -149,6 +149,32 @@ def task_last_completion(
     return stamp, result in success_codes
 
 
+# The scheduler ended the run itself: `ExecutionTimeLimit` expired or someone stopped
+# it. Read off a real run (#1031): the off-site sync overran its 3h cap while its
+# orphaned children finished the upload, so this result is not "the job errored".
+SCHED_S_TASK_TERMINATED = 267014  # 0x00041306
+
+
+def task_last_result(
+    path: str,
+    name: str,
+    *,
+    reader: TaskInfoReader | None = None,
+) -> int | None:
+    """The raw `LastTaskResult`, or None when unreadable.
+
+    `task_last_completion` folds this to a bool; a caller that must word a failure
+    (a time-limit kill and an error lead to different next steps) reads it here.
+    """
+    out = (reader or powershell_task_info)(path, name)
+    if not out:
+        return None
+    try:
+        return int(out.strip().partition(" ")[2].strip())
+    except ValueError:
+        return None
+
+
 # ---------------------------------------------------------------- is it even there?
 #
 # `task_last_completion` deliberately CANNOT answer this: it returns `(None, False)`

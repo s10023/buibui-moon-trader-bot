@@ -48,6 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tools.agents_config import AgentsConfig, Budgets, ConfigError  # noqa: E402
 from tools.agents_config import load as load_agents_config  # noqa: E402
 from tools.memory_dir import MemoryDirNotFoundError, memory_dir  # noqa: E402
+from tools.repo_walk import md_files  # noqa: E402
 from tools.stale_anchors import default_resolver, describe, scan  # noqa: E402
 
 Runner = Callable[[Sequence[str]], str]
@@ -1067,7 +1068,7 @@ def _check_stale_anchors() -> list[Finding]:
     ``sanity_checks``. The repo half alone would have reported clean.
     """
     repo_root = Path.cwd()
-    sources = [p for root in ANCHOR_ROOTS for p in sorted(Path(root).rglob("*.md"))]
+    sources = [p for root in ANCHOR_ROOTS for p in md_files(Path(root))]
     sources += [Path(f) for f in anchor_files() if Path(f).is_file()]
     resolve = default_resolver(repo_root, MEMORY_DIR)
 

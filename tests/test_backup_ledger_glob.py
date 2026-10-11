@@ -917,3 +917,72 @@ class TestManifestIsValidJson:
             "duckdb",
             "row_counts",
         }
+
+
+def _plant_claude_tree(repo: Path) -> None:
+    """A `.claude` holding what must be kept beside a worktree that must not be."""
+    claude = repo / ".claude"
+    (claude / "hooks").mkdir(parents=True)
+    (claude / "hooks" / "guard.py").write_text("hook\n", encoding="utf-8")
+    (claude / "sensitive-terms.txt").write_text("term\n", encoding="utf-8")
+    wt = claude / "worktrees" / "stale-session" / "docs"
+    wt.mkdir(parents=True)
+    (wt / "copy.md").write_text("a whole other checkout\n", encoding="utf-8")
+
+
+class TestWorktreesAreExcluded:
+    """#1031: `.claude/worktrees/` doubled the daily snapshot and overran the off-site
+    task's 3h limit. A worktree is tracked files plus branch work, neither single-copy,
+    so it is dropped while the rest of `.claude` is still copied."""
+
+    def test_the_worktree_is_dropped_and_the_rest_of_claude_is_kept(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        _plant_claude_tree(fake_repo)
+        home = tmp_path / "home"
+        home.mkdir()
+
+        r = _run(fake_repo, tmp_path, home=home)
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        snap = sorted((tmp_path / "backups" / "daily").iterdir())[-1] / ".claude"
+        assert (snap / "sensitive-terms.txt").read_text(encoding="utf-8") == "term\n"
+        assert (snap / "hooks" / "guard.py").exists()
+        assert not (snap / "worktrees").exists()
+
+    def test_the_dry_run_names_the_exclusion_and_does_not_count_it(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        _plant_claude_tree(fake_repo)
+        home = tmp_path / "home"
+        home.mkdir()
+
+        r = _run(fake_repo, tmp_path, "--dry-run", home=home)
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert "excluded   .claude/worktrees" in r.stdout
+        dir_line = next(
+            line for line in r.stdout.splitlines() if "dir        .claude (" in line
+        )
+        assert dir_line.endswith(", 2 files)"), dir_line
+
+    def test_mutation_emptying_the_exclude_list_copies_the_worktree(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        """Proves the exclusion comes from LEDGER_DIR_EXCLUDES, not something incidental."""
+        script = fake_repo / "deploy" / "backup-analytics.sh"
+        text = script.read_text(encoding="utf-8")
+        entry = 'LEDGER_DIR_EXCLUDES=(\n    ".claude/worktrees"\n)'
+        assert entry in text, "the exclude list is not present to mutate"
+        script.write_text(
+            text.replace(entry, "LEDGER_DIR_EXCLUDES=()"), encoding="utf-8"
+        )
+        _plant_claude_tree(fake_repo)
+        home = tmp_path / "home"
+        home.mkdir()
+
+        r = _run(fake_repo, tmp_path, home=home)
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        snap = sorted((tmp_path / "backups" / "daily").iterdir())[-1] / ".claude"
+        assert (snap / "worktrees" / "stale-session" / "docs" / "copy.md").exists()
